@@ -39,6 +39,19 @@ Click the menu bar icon for:
 - **Start at Login** -- toggle whether it auto-starts next time you log in
 - **Quit**
 
+## Project layout
+
+Every file here is plain, readable Python or bash -- nothing compiled, nothing obfuscated, no external network calls beyond installing `rumps` from PyPI.
+
+```
+app.py                       menu bar UI (rumps) -- wires everything below together
+token_math.py                reads the jsonl logs and does the token accounting
+active_sessions.py           matches running `claude` processes to their sessions
+login_item.py                toggles the LaunchAgent "start at login" setting
+install.sh / uninstall.sh    set up / remove the LaunchAgent
+tests/                       pytest suite for the three logic modules above
+```
+
 ## Uninstall
 
 ```bash
