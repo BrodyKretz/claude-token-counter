@@ -28,11 +28,17 @@ If step 1 fails because `rumps` isn't installed, the script installs it for you 
 ## What you'll see when you click the icon
 
 - **Claude tokens used** -- your exact running total
+- **Today's tokens used** -- just what you've used since midnight
 - **Tracking since** -- the date you first installed this
+- **Leaderboard (Beta)** -- see below, this one's still a work in progress
 - **Active Sessions** -- every Claude Code terminal you currently have open, and how many tokens each one has used
-- **Pause/Resume Scanning** -- temporarily stop it from checking for new usage
+- **Pause/Resume Scanning**, plus a **Scans every _N_ seconds** menu to change how often it checks for new usage
 - **Start at Login** -- turn auto-start on or off
 - **Quit**
+
+### Leaderboard (Beta)
+
+This is an in-progress feature, not a finished one. Right now it's UI scaffolding only: "Invite Friend" and "Share Friend Code" are placeholders (they just tell you it's not built yet), and the leaderboard itself reads from a local `friends.json` that nothing currently populates -- there's no real friend-syncing mechanism wired up yet. It'll show "No friends added yet" until that's built.
 
 ## Uninstalling
 
@@ -56,6 +62,7 @@ This removes it completely from starting at login. Your accumulated total (`stat
 app.py                       menu bar UI (rumps) -- also handles the "start at login" toggle
 token_math.py                reads the jsonl logs and does the token accounting
 active_sessions.py           matches running `claude` processes to their sessions
+leaderboard.py               Leaderboard (Beta) -- local friends-list scaffolding, no sync yet
 install.sh / uninstall.sh    set up / remove the LaunchAgent
 tests/                       pytest suite for the logic in the modules above
 ```

@@ -1,4 +1,5 @@
 import json
+from datetime import date, datetime
 from pathlib import Path
 
 CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
@@ -70,6 +71,56 @@ def refresh_grand_total(state, projects_dir=CLAUDE_PROJECTS_DIR):
         offsets[path_str] = new_offset
 
     return state
+
+
+def _local_date_of(timestamp_str):
+    """Convert a log entry's UTC timestamp (e.g. "2026-07-23T04:42:51.880Z")
+    into the local calendar date it falls on.
+    """
+    utc_dt = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+    return utc_dt.astimezone().date()
+
+
+def _sum_usage_for_date_in_file(path, target_date):
+    total = 0
+    with open(path, "rb") as f:
+        for line in f:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if entry.get("type") != "assistant":
+                continue
+            timestamp = entry.get("timestamp")
+            usage = entry.get("message", {}).get("usage")
+            if not timestamp or not usage:
+                continue
+            if _local_date_of(timestamp) != target_date:
+                continue
+            total += (
+                usage.get("input_tokens", 0)
+                + usage.get("output_tokens", 0)
+                + usage.get("cache_creation_input_tokens", 0)
+                + usage.get("cache_read_input_tokens", 0)
+            )
+    return total
+
+
+def sum_usage_for_today(projects_dir=CLAUDE_PROJECTS_DIR, today=None):
+    """Sum tokens from assistant entries whose own timestamp falls on `today`.
+
+    Filters by each entry's actual timestamp rather than by when it was
+    scanned, so a first-ever run doesn't misreport the entire historical
+    backlog as "today". Only files modified today or later are opened in
+    full, since a file untouched today can't contain any of today's entries.
+    """
+    today = today or date.today()
+    total = 0
+    for path in projects_dir.rglob("*.jsonl"):
+        if datetime.fromtimestamp(path.stat().st_mtime).date() < today:
+            continue
+        total += _sum_usage_for_date_in_file(path, today)
+    return total
 
 
 def format_count(n):

@@ -1,8 +1,16 @@
 import json
+import os
+import time
+from datetime import date
 
 import pytest
 
-from token_math import format_count, refresh_grand_total, sum_usage_since
+from token_math import (
+    format_count,
+    refresh_grand_total,
+    sum_usage_for_today,
+    sum_usage_since,
+)
 
 
 def write_jsonl(path, entries):
@@ -11,8 +19,8 @@ def write_jsonl(path, entries):
             f.write(json.dumps(entry) + "\n")
 
 
-def assistant_entry(input_tokens, output_tokens, cache_creation=0, cache_read=0):
-    return {
+def assistant_entry(input_tokens, output_tokens, cache_creation=0, cache_read=0, timestamp=None):
+    entry = {
         "type": "assistant",
         "message": {
             "usage": {
@@ -23,6 +31,9 @@ def assistant_entry(input_tokens, output_tokens, cache_creation=0, cache_read=0)
             }
         },
     }
+    if timestamp is not None:
+        entry["timestamp"] = timestamp
+    return entry
 
 
 def test_sum_usage_since_sums_all_fields(tmp_path):
@@ -138,3 +149,57 @@ def test_refresh_grand_total_drops_deleted_files_without_losing_total(tmp_path):
 )
 def test_format_count(n, expected):
     assert format_count(n) == expected
+
+
+def test_sum_usage_for_today_only_counts_matching_date(tmp_path):
+    projects_dir = tmp_path / "projects"
+    project = projects_dir / "some-project"
+    project.mkdir(parents=True)
+    path = project / "session.jsonl"
+    write_jsonl(
+        path,
+        [
+            assistant_entry(10, 10, timestamp="2026-07-29T12:00:00.000Z"),
+            assistant_entry(5, 5, timestamp="2026-07-28T12:00:00.000Z"),
+        ],
+    )
+    now = time.time()
+    os.utime(path, (now, now))
+
+    total = sum_usage_for_today(projects_dir=projects_dir, today=date(2026, 7, 29))
+
+    assert total == 20
+
+
+def test_sum_usage_for_today_skips_files_not_modified_today(tmp_path):
+    projects_dir = tmp_path / "projects"
+    project = projects_dir / "some-project"
+    project.mkdir(parents=True)
+    path = project / "session.jsonl"
+    write_jsonl(path, [assistant_entry(10, 10, timestamp="2026-07-29T12:00:00.000Z")])
+    two_days_ago = time.time() - 86400 * 2
+    os.utime(path, (two_days_ago, two_days_ago))
+
+    total = sum_usage_for_today(projects_dir=projects_dir, today=date(2026, 7, 29))
+
+    assert total == 0
+
+
+def test_sum_usage_for_today_ignores_entries_missing_usage_or_timestamp(tmp_path):
+    projects_dir = tmp_path / "projects"
+    project = projects_dir / "some-project"
+    project.mkdir(parents=True)
+    path = project / "session.jsonl"
+    write_jsonl(
+        path,
+        [
+            {"type": "assistant", "message": {}},
+            assistant_entry(3, 3, timestamp="2026-07-29T12:00:00.000Z"),
+        ],
+    )
+    now = time.time()
+    os.utime(path, (now, now))
+
+    total = sum_usage_for_today(projects_dir=projects_dir, today=date(2026, 7, 29))
+
+    assert total == 6

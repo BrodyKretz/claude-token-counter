@@ -1,4 +1,5 @@
 state.json
+friends.json
 agent.log
 agent.err.log
 __pycache__/
