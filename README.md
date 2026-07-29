@@ -6,10 +6,14 @@ A tiny macOS menu bar app that shows how many Claude Code tokens you've used, in
 
 ## Is this safe to run?
 
-Yes. There's no compiled binary and nothing hidden -- it's 4 short Python files and 2 shell scripts, all listed below, all readable in a few minutes. It never connects to the internet or sends your data anywhere. The only things it touches are:
+Yes. There's no compiled binary and nothing hidden -- it's a handful of short Python files and 2 shell scripts, all listed below, all readable in a few minutes.
+
+By default it never connects to the internet or sends your data anywhere. The only things it touches are:
 
 - Log files already on your own Mac (`~/.claude/projects/`, which Claude Code itself writes)
 - `launchctl`, macOS's own built-in tool, only to turn its "start at login" setting on or off
+
+**The one exception is the Leaderboard (Beta) feature, and it's entirely opt-in** -- nothing below happens unless you click "Get Set Up with Leaderboard" yourself. See the [Leaderboard (Beta)](#leaderboard-beta) section for exactly what that does.
 
 ## Quick start
 
@@ -38,7 +42,20 @@ If step 1 fails because `rumps` isn't installed, the script installs it for you 
 
 ### Leaderboard (Beta)
 
-This is an in-progress feature, not a finished one. Right now it's UI scaffolding only: "Invite Friend" and "Share Friend Code" are placeholders (they just tell you it's not built yet), and the leaderboard itself reads from a local `friends.json` that nothing currently populates -- there's no real friend-syncing mechanism wired up yet. It'll show "No friends added yet" until that's built.
+This is a genuine work in progress, not a finished feature -- treat it as rougher and less battle-tested than everything else in this app. It's also completely opt-in: until you click "Get Set Up with Leaderboard," none of what follows happens, and the rest of the app (token counting, Active Sessions, etc.) works exactly the same with or without it.
+
+Here is exactly what it does, in order, when you click "Get Set Up with Leaderboard":
+
+1. **It opens your browser** to a GitHub page that creates a Personal Access Token scoped *only* to the `gist` permission (nothing else on your GitHub account -- it cannot read your repos, emails, or anything beyond gists). You generate the token yourself on GitHub's own site.
+2. **You paste that token into a prompt in the app.** The token is stored in your **macOS Keychain** (the same secure system macOS itself uses for saved passwords) -- never written to any file in this project, never logged, never leaves your Mac except as an authorization header sent directly to `api.github.com` over HTTPS.
+3. **It creates one secret Gist on your own GitHub account** -- a single small JSON file containing only: the display name you typed in, your total token count, your token count from yesterday, and today's date. That's the entire payload. No logs, no message content, no file paths, no code ever leaves your machine.
+4. **Once a day** (checked whenever the app does its normal scan, gated by date so it only actually runs once), it pushes your updated numbers to that same Gist, and separately fetches the Gist of every friend you've added, updating your local `friends.json`. You can also trigger both manually any time with "Push Update Now" / "Pull Latest Now."
+
+**Adding a friend** ("Add Friend by Code") just means pasting in the ID of their Gist -- that ID is their "friend code." Reading a friend's Gist is a plain, unauthenticated read of a known URL; no token or permission exchange happens between you and them.
+
+**Where things live locally:** your GitHub token is Keychain-only. Your Gist ID and display name are in `state.json`. Your friends' cached scores are in `friends.json`. All three are gitignored -- none of this is ever part of the git history of this project, and none of it is sent to any server other than `api.github.com`, which GitHub itself runs.
+
+**Honest caveat:** since every person's own client reports its own numbers, there's no way for anyone to verify a score is real. This is an honor-system leaderboard for fun among friends, not a tamper-proof one -- which is exactly what the disclaimer inside the menu itself says.
 
 ## Uninstalling
 
@@ -62,7 +79,8 @@ This removes it completely from starting at login. Your accumulated total (`stat
 app.py                       menu bar UI (rumps) -- also handles the "start at login" toggle
 token_math.py                reads the jsonl logs and does the token accounting
 active_sessions.py           matches running `claude` processes to their sessions
-leaderboard.py               Leaderboard (Beta) -- local friends-list scaffolding, no sync yet
+leaderboard.py               Leaderboard (Beta) -- local friends-list storage and sorting
+gist_sync.py                 Leaderboard (Beta) -- Keychain token storage + GitHub Gist API calls
 install.sh / uninstall.sh    set up / remove the LaunchAgent
 tests/                       pytest suite for the logic in the modules above
 ```

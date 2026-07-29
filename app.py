@@ -1,13 +1,23 @@
 import os
 import subprocess
-from datetime import date
+import urllib.error
+import webbrowser
+from datetime import date, timedelta
 from pathlib import Path
 
 import rumps
 from AppKit import NSAttributedString, NSFont, NSFontAttributeName
 
 from active_sessions import active_sessions
-from leaderboard import load_friends, sorted_friends
+from gist_sync import (
+    NEW_TOKEN_URL,
+    create_gist,
+    fetch_gist,
+    get_github_token,
+    set_github_token,
+    update_gist,
+)
+from leaderboard import load_friends, save_friends, sorted_friends
 from token_math import (
     format_count,
     load_state,
@@ -81,6 +91,9 @@ class TokenCounterApp(rumps.App):
         self.state.setdefault("start_at_login", True)
         self.state.setdefault("scan_interval_seconds", REFRESH_SECONDS)
         self.state.setdefault("leaderboard_view", "total")
+        self.state.setdefault("my_gist_id", None)
+        self.state.setdefault("leaderboard_name", None)
+        self.state.setdefault("last_leaderboard_sync_date", None)
         if self.state["first_seen_at"] is None:
             self.state["first_seen_at"] = date.today().isoformat()
         refresh_grand_total(self.state)
@@ -150,14 +163,37 @@ class TokenCounterApp(rumps.App):
             label = f"{session['label']} — {format_count(session['tokens'])} tokens"
             self.sessions_item.add(rumps.MenuItem(label))
 
+    def _leaderboard_payload(self):
+        yesterday = date.today() - timedelta(days=1)
+        return {
+            "name": self.state.get("leaderboard_name") or "Anonymous",
+            "total_tokens": self.state["grand_total"],
+            "yesterday_tokens": sum_usage_for_today(today=yesterday),
+            "updated_at": date.today().isoformat(),
+        }
+
     def _rebuild_leaderboard_menu(self):
         if self.leaderboard_item:
             self.leaderboard_item.clear()
+
+        if self.state.get("my_gist_id"):
+            self.leaderboard_item.add(
+                rumps.MenuItem("Share Friend Code", callback=self.share_friend_code)
+            )
+            self.leaderboard_item.add(
+                rumps.MenuItem("Push Update Now", callback=self.push_leaderboard_update)
+            )
+        else:
+            self.leaderboard_item.add(
+                rumps.MenuItem(
+                    "Get Set Up with Leaderboard", callback=self.start_leaderboard_setup
+                )
+            )
         self.leaderboard_item.add(
-            rumps.MenuItem("Invite Friend", callback=self.invite_friend)
+            rumps.MenuItem("Add Friend by Code", callback=self.add_friend_by_code)
         )
         self.leaderboard_item.add(
-            rumps.MenuItem("Share Friend Code", callback=self.share_friend_code)
+            rumps.MenuItem("Pull Latest Now", callback=self.pull_leaderboard_updates)
         )
         self.leaderboard_item.add(None)
 
@@ -193,19 +229,118 @@ class TokenCounterApp(rumps.App):
             )
         )
 
-    def invite_friend(self, _):
-        rumps.alert(
-            "Invite Friend (Beta)",
-            "Friend syncing isn't built yet -- this button is a placeholder "
-            "for a feature that's still in progress.",
+    def start_leaderboard_setup(self, _):
+        proceed = rumps.alert(
+            "Set Up Leaderboard (Beta)",
+            "This opens GitHub in your browser to create a personal access "
+            "token scoped only to 'gist'. Generate it, then come back here "
+            "and paste it in.",
+            ok="Open GitHub",
+            cancel="Cancel",
         )
+        if not proceed:
+            return
+        webbrowser.open(NEW_TOKEN_URL)
+
+        token_response = rumps.Window(
+            message="Paste your GitHub token here:",
+            title="GitHub Token",
+            ok="Continue",
+            cancel="Cancel",
+            secure=True,
+        ).run()
+        if not token_response.clicked or not token_response.text.strip():
+            return
+        token = token_response.text.strip()
+
+        name_response = rumps.Window(
+            message="What name should show on the leaderboard?",
+            title="Your Leaderboard Name",
+            default_text=os.environ.get("USER", ""),
+            ok="Continue",
+            cancel="Cancel",
+        ).run()
+        if not name_response.clicked or not name_response.text.strip():
+            return
+        self.state["leaderboard_name"] = name_response.text.strip()
+
+        try:
+            set_github_token(token)
+            gist_id = create_gist(token, self._leaderboard_payload())
+        except (subprocess.CalledProcessError, urllib.error.URLError, KeyError) as e:
+            rumps.alert("Setup Failed", str(e))
+            return
+
+        self.state["my_gist_id"] = gist_id
+        save_state(self.state, STATE_FILE)
+        self._rebuild_leaderboard_menu()
+        rumps.alert("All Set", f"Your friend code is:\n\n{gist_id}")
 
     def share_friend_code(self, _):
-        rumps.alert(
-            "Share Friend Code (Beta)",
-            "Friend codes aren't built yet -- this button is a placeholder "
-            "for a feature that's still in progress.",
+        rumps.alert("Your Friend Code", self.state.get("my_gist_id", ""))
+
+    def push_leaderboard_update(self, _=None):
+        gist_id = self.state.get("my_gist_id")
+        if not gist_id:
+            return
+        token = get_github_token()
+        if not token:
+            rumps.alert(
+                "Leaderboard", "No GitHub token found -- run Get Set Up again."
+            )
+            return
+        try:
+            update_gist(token, gist_id, self._leaderboard_payload())
+        except urllib.error.URLError as e:
+            rumps.alert("Push Failed", str(e))
+
+    def add_friend_by_code(self, _):
+        response = rumps.Window(
+            message="Paste your friend's Gist ID (their friend code):",
+            title="Add Friend",
+            ok="Add",
+            cancel="Cancel",
+        ).run()
+        if not response.clicked or not response.text.strip():
+            return
+        gist_id = response.text.strip()
+        friends = load_friends()
+        if any(f.get("gist_id") == gist_id for f in friends):
+            return
+        friends.append(
+            {"gist_id": gist_id, "name": gist_id, "total_tokens": 0, "yesterday_tokens": 0}
         )
+        save_friends(friends)
+        self.pull_leaderboard_updates()
+
+    def pull_leaderboard_updates(self, _=None):
+        friends = load_friends()
+        updated = []
+        for friend in friends:
+            try:
+                data = fetch_gist(friend["gist_id"])
+            except (urllib.error.URLError, KeyError):
+                updated.append(friend)
+                continue
+            updated.append(
+                {
+                    "gist_id": friend["gist_id"],
+                    "name": data.get("name", friend.get("name", "Friend")),
+                    "total_tokens": data.get("total_tokens", 0),
+                    "yesterday_tokens": data.get("yesterday_tokens", 0),
+                }
+            )
+        save_friends(updated)
+        self._rebuild_leaderboard_menu()
+
+    def _maybe_run_daily_leaderboard_sync(self):
+        today = date.today().isoformat()
+        if self.state.get("last_leaderboard_sync_date") == today:
+            return
+        self.push_leaderboard_update()
+        self.pull_leaderboard_updates()
+        self.state["last_leaderboard_sync_date"] = today
+        save_state(self.state, STATE_FILE)
 
     def set_leaderboard_view(self, sender):
         self.state["leaderboard_view"] = sender.view
@@ -219,6 +354,7 @@ class TokenCounterApp(rumps.App):
         self.total_item.title = self._total_label()
         self.today_item.title = self._today_label()
         self._update_sessions_menu()
+        self._maybe_run_daily_leaderboard_sync()
         self._rebuild_leaderboard_menu()
 
     def toggle_pause(self, sender):
