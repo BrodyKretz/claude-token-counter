@@ -1,47 +1,56 @@
 # Claude Token Counter
 
-A tiny macOS menu bar app that shows your lifetime Claude Code token usage, and keeps counting from wherever it's at.
+A tiny macOS menu bar app that shows how many Claude Code tokens you've used, in total, forever. It just sits in your menu bar and the number keeps going up.
 
 ![menu bar](https://img.shields.io/badge/platform-macOS-lightgrey)
 
-## What it does
+## Is this safe to run?
 
-- Reads Claude Code's own session logs (`~/.claude/projects/**/*.jsonl`) and sums up every token you've used (input + output + cache creation + cache read).
-- Keeps a running grand total in a local `state.json`, tracked by file byte-offset so it only ever counts new tokens once -- even after Claude Code prunes old session logs (it deletes them after ~30 days), the total keeps climbing instead of shrinking.
-- Refreshes every 15 seconds while running.
-- Shows a live per-terminal breakdown ("Active Sessions") of every currently-running `claude` process and how many tokens its session has used.
-- Everything is local. The only things it talks to are files on your own disk and `launchctl` (for the login-item toggle) -- no network calls, no telemetry.
+Yes. There's no compiled binary and nothing hidden -- it's 4 short Python files and 2 shell scripts, all listed below, all readable in a few minutes. It never connects to the internet or sends your data anywhere. The only things it touches are:
 
-## Requirements
+- Log files already on your own Mac (`~/.claude/projects/`, which Claude Code itself writes)
+- `launchctl`, macOS's own built-in tool, only to turn its "start at login" setting on or off
 
-- macOS
-- Python 3.9+
-- [`rumps`](https://github.com/jaredks/rumps) (installed automatically by `install.sh`, or `pip install -r requirements.txt`)
+## Quick start
 
-## Install
+1. Open Terminal and paste this in, one line at a time:
+   ```bash
+   git clone https://github.com/BrodyKretz/claude-token-counter.git
+   cd claude-token-counter
+   ./install.sh
+   ```
+2. Look at your menu bar (top right of your screen). You'll see a 🪙 icon with a number next to it.
 
-```bash
-git clone https://github.com/<your-username>/claude-token-counter.git
-cd claude-token-counter
-./install.sh
-```
+That's it. It now also starts automatically every time you log in.
 
-This installs a LaunchAgent that starts the app now and automatically at every login. Look for the 🪙 icon in your menu bar.
+If step 1 fails because `rumps` isn't installed, the script installs it for you automatically the first time (it needs Python 3 and `pip`, which come standard on macOS).
 
-## Menu
+## What you'll see when you click the icon
 
-Click the menu bar icon for:
-
-- **Claude tokens used** -- the exact running total
-- **Tracking since** -- the date this install first computed a baseline
-- **Active Sessions** -- one entry per currently-running Claude Code terminal, with its own token count
-- **Pause/Resume Scanning** -- temporarily stop the 15s refresh loop
-- **Start at Login** -- toggle whether it auto-starts next time you log in
+- **Claude tokens used** -- your exact running total
+- **Tracking since** -- the date you first installed this
+- **Active Sessions** -- every Claude Code terminal you currently have open, and how many tokens each one has used
+- **Pause/Resume Scanning** -- temporarily stop it from checking for new usage
+- **Start at Login** -- turn auto-start on or off
 - **Quit**
 
-## Project layout
+## Uninstalling
 
-Every file here is plain, readable Python or bash -- nothing compiled, nothing obfuscated, no external network calls beyond installing `rumps` from PyPI.
+```bash
+./uninstall.sh
+```
+
+This removes it completely from starting at login. Your accumulated total (`state.json`) is left on disk in case you reinstall later -- delete that file yourself if you want to reset to zero.
+
+## How it works
+
+- Claude Code already writes a log of every message you send and receive to `~/.claude/projects/**/*.jsonl` on your own machine.
+- This app reads those logs and adds up the tokens (input + output + cache) used in every message.
+- It remembers exactly how far into each log file it has already counted, so re-checking every 15 seconds only adds *new* tokens, never double-counts, and the total keeps climbing correctly even after Claude Code deletes old logs (it prunes anything older than ~30 days).
+
+**A note on "Active Sessions" accuracy:** Claude Code doesn't expose which exact log file belongs to which open terminal, so this is a best-effort match based on which directory each terminal is running in and which log file in that directory was written to most recently. If you have two terminals open in the exact same folder at once, they may get matched to the wrong one of each other -- everything else is unaffected.
+
+## Project layout
 
 ```
 app.py                       menu bar UI (rumps) -- wires everything below together
@@ -52,24 +61,17 @@ install.sh / uninstall.sh    set up / remove the LaunchAgent
 tests/                       pytest suite for the three logic modules above
 ```
 
-## Uninstall
+## Requirements
 
-```bash
-./uninstall.sh
-```
+- macOS
+- Python 3.9+
 
-Removes the LaunchAgent. `state.json` (your accumulated total) is left alone in case you reinstall later -- delete it yourself for a clean slate.
-
-## Running tests
+## Running the tests
 
 ```bash
 pip install pytest
 pytest
 ```
-
-## How "active sessions" matching works
-
-Claude Code doesn't expose which exact session file belongs to which running process, so the app makes a best-effort match: for each running `claude` process, it looks at the process's working directory and picks the most-recently-modified session file in that directory's log folder. If you have several terminals open in the exact same directory at once, each gets matched to one of the most recent files there, but which exact terminal maps to which file isn't guaranteed.
 
 ## License
 
