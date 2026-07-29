@@ -1,3 +1,4 @@
+import os
 import subprocess
 from datetime import date
 from pathlib import Path
@@ -5,11 +6,30 @@ from pathlib import Path
 import rumps
 
 from active_sessions import active_sessions
-from login_item import set_start_at_login
 from token_math import format_count, load_state, refresh_grand_total, save_state
 
 STATE_FILE = Path(__file__).resolve().parent / "state.json"
 REFRESH_SECONDS = 15
+LABEL = "com.claudetokencounter.menubar"
+
+
+def _service_target():
+    return f"gui/{os.getuid()}/{LABEL}"
+
+
+def set_start_at_login(enabled):
+    """Enable/disable this LaunchAgent starting at login via launchctl overrides.
+
+    Does not touch the currently running process -- only affects whether
+    launchd starts it again on the next login.
+    """
+    action = "enable" if enabled else "disable"
+    subprocess.run(
+        ["launchctl", action, _service_target()],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 class TokenCounterApp(rumps.App):

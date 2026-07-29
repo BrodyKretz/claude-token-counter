@@ -1,6 +1,6 @@
 import subprocess
 
-import login_item
+import app
 
 
 def test_set_start_at_login_enable_calls_launchctl_enable(monkeypatch):
@@ -11,9 +11,9 @@ def test_set_start_at_login_enable_calls_launchctl_enable(monkeypatch):
         lambda args, **kwargs: calls.append(args),
     )
 
-    login_item.set_start_at_login(True)
+    app.set_start_at_login(True)
 
-    assert calls == [["launchctl", "enable", login_item._service_target()]]
+    assert calls == [["launchctl", "enable", app._service_target()]]
 
 
 def test_set_start_at_login_disable_calls_launchctl_disable(monkeypatch):
@@ -24,6 +24,6 @@ def test_set_start_at_login_disable_calls_launchctl_disable(monkeypatch):
         lambda args, **kwargs: calls.append(args),
     )
 
-    login_item.set_start_at_login(False)
+    app.set_start_at_login(False)
 
-    assert calls == [["launchctl", "disable", login_item._service_target()]]
+    assert calls == [["launchctl", "disable", app._service_target()]]

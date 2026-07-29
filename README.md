@@ -53,12 +53,11 @@ This removes it completely from starting at login. Your accumulated total (`stat
 ## Project layout
 
 ```
-app.py                       menu bar UI (rumps) -- wires everything below together
+app.py                       menu bar UI (rumps) -- also handles the "start at login" toggle
 token_math.py                reads the jsonl logs and does the token accounting
 active_sessions.py           matches running `claude` processes to their sessions
-login_item.py                toggles the LaunchAgent "start at login" setting
 install.sh / uninstall.sh    set up / remove the LaunchAgent
-tests/                       pytest suite for the three logic modules above
+tests/                       pytest suite for the logic in the modules above
 ```
 
 ## Requirements
