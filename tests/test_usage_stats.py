@@ -113,3 +113,12 @@ def test_top_projects_folds_subfolders_into_parent_project():
     record_entry(daily, entry(input_tokens=1, cwd="/x/gamer"))
     july29 = date(2026, 7, 29)
     assert top_projects(daily, july29, july29) == [("/x/game", 15), ("/x/gamer", 1)]
+
+
+def test_daily_series_fills_missing_days_with_zero():
+    from usage_stats import daily_series
+
+    daily = {}
+    record_entry(daily, entry(ts="2026-07-28T12:00:00.000Z", input_tokens=4))
+    series = daily_series(daily, date(2026, 7, 29), 3)
+    assert series == [(date(2026, 7, 27), 0), (date(2026, 7, 28), 4), (date(2026, 7, 29), 0)]

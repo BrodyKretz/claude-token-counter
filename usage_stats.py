@@ -156,3 +156,13 @@ def history(daily, today=None):
         "this_month": total_in_range(daily, today.replace(day=1), today),
         "biggest_day": biggest_day(daily),
     }
+
+
+def daily_series(daily, end, days):
+    """[(date, tokens)] for each of the `days` days ending on `end`, oldest
+    first, with 0 for days that have no usage."""
+    series = []
+    for offset in range(days - 1, -1, -1):
+        day = end - timedelta(days=offset)
+        series.append((day, total_in_range(daily, day, day)))
+    return series

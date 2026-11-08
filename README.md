@@ -31,21 +31,17 @@ If step 1 fails because `rumps` isn't installed, the script installs it for you 
 
 ## What you'll see when you click the icon
 
-- **Claude tokens used** -- your exact running total
-- **Today's tokens used** -- just what you've used since midnight
-- **Tracking since** -- the date you first installed this
-- **Stats tabs** -- click a tab to switch, without the menu closing:
-  - **Tokens** -- today's and lifetime tokens split into input, output, cache write and cache read
-  - **Models** -- today's and lifetime tokens per model (Opus, Sonnet, Haiku...)
-  - **Projects** -- the 3 folders you used the most tokens in over the last 7 days
-  - **History** -- yesterday, last 7 days, this month, and your biggest day so far
-  - **Cost** -- what your usage would cost at Anthropic's pay-as-you-go API prices. Just for fun: a Pro or Max subscription is flat-rate, so you aren't billed this. Prices live in `pricing.py` and will drift over time.
-  - **Sessions** -- every Claude Code terminal you currently have open, and how many tokens each one has used
+A panel opens with a row of tabs along the top. Click an icon to switch tabs:
+
+- **Overview** -- today's and lifetime totals, a chart of the last 14 days, and yesterday / last 7 days / this month / your biggest day
+- **Token Types** -- today's and lifetime tokens split into input, output, cache write and cache read, each with a bar showing its share
+- **Models** -- today's and lifetime tokens per model (Opus, Sonnet, Haiku...)
+- **Projects** -- the 3 folders you used the most tokens in over the last 7 days
+- **Estimated API Cost** -- what your usage would cost at Anthropic's pay-as-you-go API prices. Just for fun: a Pro or Max subscription is flat-rate, so you aren't billed this. Prices live in `pricing.py` and will drift over time.
+- **Active Sessions** -- every Claude Code terminal you currently have open, and how many tokens each one has used
 - **Leaderboard (Beta)** -- see below, this one's still a work in progress
-- **Menu Bar Shows** -- show your lifetime total, today's total, or just the icon
-- **Pause/Resume Scanning**, plus a **Scans every _N_ seconds** menu to change how often it checks for new usage
-- **Start at Login** -- turn auto-start on or off
-- **Quit**
+
+At the bottom: the date you started tracking, a **Settings** button (what the menu bar shows -- lifetime total, today's total, or just the icon; how often to scan; pause scanning; start at login) and **Quit**. Click anywhere outside the panel to close it.
 
 ### Leaderboard (Beta)
 
@@ -84,11 +80,11 @@ This removes it completely from starting at login. Your accumulated total (`stat
 ## Project layout
 
 ```
-app.py                       menu bar UI (rumps) -- also handles the "start at login" toggle
+app.py                       menu bar app (rumps): scanning, settings, leaderboard actions
 token_math.py                reads the jsonl logs and does the token accounting
 usage_stats.py               per-day buckets and the breakdown / model / project / history views
-stats_tabs.py                what each stats tab shows, as plain data
-stats_panel.py               draws the tabbed stats panel inside the menu (AppKit)
+stats_tabs.py                what each panel tab shows, as plain data
+panel_view.py                draws the panel (tabs, cards, bars, chart, settings) with AppKit
 pricing.py                   API price table and the estimated-cost math
 active_sessions.py           matches running `claude` processes to their sessions
 leaderboard.py               Leaderboard (Beta) -- local friends-list storage and sorting
