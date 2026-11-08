@@ -25,7 +25,9 @@ By default it never connects to the internet or sends your data anywhere. The on
    ```
 2. Look at your menu bar (top right of your screen). You'll see a 🪙 icon with a number next to it.
 
-That's it. It now also starts automatically every time you log in.
+That's it. It now also starts automatically every time you log in, and **Claude Tracker** is in your Applications folder (Finder, Launchpad and Spotlight) if you ever quit it and want it back. Opening it while it's already running just opens its panel.
+
+The app in Applications is a small launcher that runs the code in this folder, so your totals stay in `state.json` here and a `git pull` updates the app. If you move this folder, run `./install.sh` again.
 
 If step 1 fails because `rumps` isn't installed, the script installs it for you automatically the first time (it needs Python 3 and `pip`, which come standard on macOS).
 
@@ -66,7 +68,7 @@ Here is exactly what it does, in order, when you click "Set Up Leaderboard":
 ./uninstall.sh
 ```
 
-This removes it completely from starting at login. Your accumulated total (`state.json`) is left on disk in case you reinstall later -- delete that file yourself if you want to reset to zero.
+This removes it from starting at login and deletes **Claude Tracker** from your Applications folder. Your accumulated total (`state.json`) is left on disk in case you reinstall later -- delete that file yourself if you want to reset to zero.
 
 ## How it works
 
@@ -97,7 +99,9 @@ version.py                   app name, version number and credits
 active_sessions.py           matches running `claude` processes to their sessions
 leaderboard.py               Leaderboard (Beta) -- local friends-list storage and sorting
 gist_sync.py                 Leaderboard (Beta) -- Keychain token storage + GitHub Gist API calls
-install.sh / uninstall.sh    set up / remove the LaunchAgent
+build_app.py                 builds "Claude Tracker.app" (launcher, Info.plist, icon) for Applications
+single_instance.py           keeps one copy running; opening it again shows the running copy's panel
+install.sh / uninstall.sh    build the app and set up start-at-login / remove both
 tests/                       pytest suite for the logic in the modules above
 ```
 

@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 import urllib.error
 import webbrowser
 from datetime import date, timedelta
@@ -25,6 +26,7 @@ from gist_sync import (
 )
 from leaderboard import load_friends, save_friends, sorted_friends
 from panel_view import Panel
+from single_instance import acquire_lock, observe_show_requests, request_show_panel
 from stats_tabs import (
     DEFAULT_MENU_BAR_FONT_SIZE,
     LEADERBOARD_VIEWS,
@@ -47,6 +49,7 @@ from usage_stats import total_in_range
 from version import APP_NAME, REPO_URL
 
 STATE_FILE = Path(__file__).resolve().parent / "state.json"
+LOCK_FILE = Path(__file__).resolve().parent / ".claude-tracker.lock"
 REFRESH_SECONDS = 15
 SCAN_INTERVAL_CHOICES = [5, 15, 30, 60, 300]
 LABEL = "com.claudetokencounter.menubar"
@@ -111,6 +114,8 @@ class TokenCounterApp(rumps.App):
 
     def _attach_panel(self):
         self.panel.attach(self._nsapp.nsstatusitem)
+        # Opening the app again (e.g. from Finder) asks this copy to show its panel.
+        self._show_observer = observe_show_requests(self.panel.show)
         self._update_title()
 
     def _today_tokens(self):
@@ -364,5 +369,10 @@ def hide_dock_icon():
 
 
 if __name__ == "__main__":
+    instance_lock = acquire_lock(LOCK_FILE)
+    if instance_lock is None:
+        # Already running (e.g. started at login): show that copy's panel.
+        request_show_panel()
+        sys.exit(0)
     hide_dock_icon()
     TokenCounterApp().run()

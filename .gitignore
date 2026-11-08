@@ -2,6 +2,7 @@ state.json
 friends.json
 agent.log
 agent.err.log
+.claude-tracker.lock
 __pycache__/
 .pytest_cache/
 *.pyc

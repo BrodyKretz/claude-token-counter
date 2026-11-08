@@ -291,6 +291,11 @@ class Panel:
             self._target.retries_left = retries_left - 1
             self._target.performSelector_withObject_afterDelay_("retryShow:", None, 0.05)
 
+    def show(self):
+        """Open the panel if it isn't already open."""
+        if getattr(self, "_button", None) is not None and not self.popover.isShown():
+            self._show(retries_left=3)
+
     def close(self):
         self._stop_monitors()
         if self.popover.isShown():
