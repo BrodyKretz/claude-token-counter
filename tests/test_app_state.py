@@ -48,3 +48,13 @@ def test_init_is_idempotent_and_keeps_choices():
 
     assert state == {"enabled_tools": ["codex"], "combine_tools": True, "selected_tool": "codex",
                      "onboarding_done": True}
+
+
+def test_menu_bar_label_uses_tool_icon_or_coin():
+    from app import menu_bar_label
+
+    assert menu_bar_label("all", "3.8B", has_icon=True) == ("🪙 3.8B", False)
+    assert menu_bar_label("codex", "39.4M", has_icon=True) == (" 39.4M", True)
+    assert menu_bar_label("codex", "39.4M", has_icon=False) == ("🪙 39.4M", False)
+    assert menu_bar_label("codex", None, has_icon=True) == ("", True)  # icon-only mode
+    assert menu_bar_label("all", None, has_icon=False) == ("🪙", False)

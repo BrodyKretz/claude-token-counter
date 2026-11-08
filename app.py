@@ -13,6 +13,7 @@ from AppKit import (
     NSAttributedString,
     NSFont,
     NSFontAttributeName,
+    NSImageLeft,
 )
 
 from active_sessions import active_sessions, running_tool_sessions
@@ -46,6 +47,7 @@ from token_math import (
     save_state,
     sum_usage_for_today,
 )
+from tool_icons import menu_bar_image
 from tools import TOOLS, combined_view, detect_tools, scan_tools, tool_view
 from usage_stats import total_in_range
 from version import APP_NAME, REPO_URL
@@ -67,6 +69,16 @@ def init_tool_state(state, fresh_install):
         "selected_tool", state["enabled_tools"][0] if state["enabled_tools"] else "claude_code"
     )
     state.setdefault("onboarding_done", not fresh_install)
+
+
+def menu_bar_label(view_key, count_text, has_icon):
+    """(text, show_icon) for the menu bar. A single tool shows its own icon
+    when one was found; the combined view (or a missing icon) shows the coin.
+    `count_text` is None in icon-only mode."""
+    use_icon = view_key != "all" and has_icon
+    if use_icon:
+        return (f" {count_text}" if count_text else ""), True
+    return (f"🪙 {count_text}" if count_text else "🪙"), False
 
 
 def _service_target():
@@ -161,11 +173,13 @@ class TokenCounterApp(rumps.App):
         mode = self.state["title_mode"]
         if mode == "today":
             today = date.today()
-            title = f"🪙 {format_count(total_in_range(view['daily'], today, today))}"
+            count = format_count(total_in_range(view["daily"], today, today))
         elif mode == "icon":
-            title = "🪙"
+            count = None
         else:
-            title = f"🪙 {format_count(view['grand_total'])}"
+            count = format_count(view["grand_total"])
+        image = menu_bar_image(view["key"]) if view["key"] != "all" else None
+        title, show_icon = menu_bar_label(view["key"], count, image is not None)
         self.title = title
         # Redraw it at the size picked in Settings, with even-width digits so
         # the item doesn't jiggle as the count changes.
@@ -174,11 +188,14 @@ class TokenCounterApp(rumps.App):
             font = NSFont.monospacedDigitSystemFontOfSize_weight_(
                 self.state["menu_bar_font_size"], 0.0
             )
-            status_item.button().setAttributedTitle_(
+            button = status_item.button()
+            button.setAttributedTitle_(
                 NSAttributedString.alloc().initWithString_attributes_(
                     title, {NSFontAttributeName: font}
                 )
             )
+            button.setImage_(image if show_icon else None)
+            button.setImagePosition_(NSImageLeft)
 
     def _render_panel(self):
         detected = detect_tools()
