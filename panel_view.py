@@ -406,11 +406,11 @@ class Panel:
         if len(self.tool_choices) >= 2:
             keys = [key for key, _ in self.tool_choices]
             selected = keys.index(self.selected_tool) if self.selected_tool in keys else 0
-            self._draw_segmented(
-                ("segmented", None, [name for _, name in self.tool_choices], selected, "select_tool"),
-                PAD, y - 4, inner,
+            self._draw_popup(
+                ("popup", "Tracking", [name for _, name in self.tool_choices], selected, "select_tool"),
+                PAD + 2, y - 4, inner - 4,
             )
-            y += HEIGHTS["segmented"] + 2
+            y += HEIGHTS["popup"] + 2
         y = self._draw_tab_bar(y, inner) + 12
 
         tab = self._current_tab()
