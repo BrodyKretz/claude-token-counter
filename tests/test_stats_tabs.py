@@ -120,7 +120,7 @@ def test_settings_tab_reflects_state():
         detected=["claude_code"],
     )
     assert_well_formed(tab)
-    items = items_of({**tab, "cards": [c for c in tab["cards"] if c["title"] != "AI tools"]})
+    items = items_of({**tab, "cards": [c for c in tab["cards"] if c["title"] not in ("AI tools", "AI providers")]})
     assert ("segmented", "Shows", ["Lifetime", "Today", "Icon only"], 2, "title_mode") in items
     assert items[1] == ("popup", "Text size", ["10 pt", "11 pt", "12 pt", "13 pt", "14 pt"], 2,
                         "menu_bar_font_size")  # 12 pt by default
@@ -266,3 +266,107 @@ def test_combined_cost_prices_each_tool_separately():
 
     # Claude Code: 1M input at $4/M; opencode: its recorded $0.50.
     assert ("Today", "$4.50", "sun.max") in tabs["cost"]["cards"][0]["items"][0][1]
+
+
+# --- providers ------------------------------------------------------------
+
+def _provider_view(key="openai", name="OpenAI"):
+    daily = {}
+    add_usage(daily, date(2026, 11, 8), "gpt-5", "~/a", {"input": 5})
+    return {"key": key, "name": name, "daily": daily, "grand_total": 5, "error": None,
+            "views": []}
+
+
+def _card(tabs, tab_key, title):
+    tab = next(t for t in tabs if t["key"] == tab_key)
+    return next(c for c in tab["cards"] if c["title"] == title)
+
+
+def test_tool_choices_add_enabled_providers_after_tools():
+    state = {"enabled_tools": ["claude_code"], "enabled_providers": ["kimi", "openai"]}
+
+    assert tool_choices(state, detected=["claude_code"]) == [
+        ("claude_code", "Claude Code"), ("openai", "OpenAI"), ("kimi", "Kimi"),
+    ]
+
+
+def test_provider_view_has_no_live_sessions_tab():
+    tabs = build_panel({}, [], [], today=date(2026, 11, 8), view=_provider_view())
+
+    assert "sessions" not in [t["key"] for t in tabs]
+
+
+def test_provider_account_card_without_key_says_how_to_add_one():
+    tabs = build_panel({}, [], [], today=date(2026, 11, 8), view=_provider_view())
+
+    items = _card(tabs, "overview", "OpenAI account")["items"]
+    assert items[0][0] == "note"
+    assert "API key in Settings" in " ".join(i[1] for i in items)
+
+
+def test_provider_account_card_with_fetched_numbers():
+    account_daily = {}
+    add_usage(account_daily, date(2026, 11, 8), "gpt-5", "Account", {"input": 1000})
+    add_usage(account_daily, date(2026, 11, 1), "gpt-5", "Account", {"input": 2000})
+    add_usage(account_daily, date(2026, 10, 15), "gpt-5", "Account", {"input": 4000})
+    state = {"provider_keys": ["openai"], "accounts": {"openai": {
+        "daily": account_daily, "cost": {"2026-11-08": 1.5, "2026-10-15": 2.0},
+        "rows": [["Balance", "$3.00"]], "notes": ["Hello"], "error": "boom",
+        "fetched_at": "2026-11-08T09:05:00", "attempted_at": "2026-11-08T09:20:00",
+    }}}
+
+    tabs = build_panel(state, [], [], today=date(2026, 11, 8), view=_provider_view())
+
+    items = _card(tabs, "overview", "OpenAI account")["items"]
+    assert ("row", "Today", "1.0K") in items
+    assert ("row", "Last 7 days", "1.0K") in items
+    assert ("row", "Last 30 days", "7.0K") in items
+    assert ("row", "Billed, last 30 days", "$3.50") in items
+    assert ("row", "Balance", "$3.00") in items
+    notes = [i[1] for i in items if i[0] == "note"]
+    assert "Hello" in notes
+    assert any("boom" in n for n in notes)
+    assert "Updated 9:05 AM" in notes
+
+
+def test_provider_account_card_before_first_fetch():
+    state = {"provider_keys": ["kimi"], "accounts": {}}
+
+    tabs = build_panel(state, [], [], today=date(2026, 11, 8), view=_provider_view("kimi", "Kimi"))
+
+    assert ("note", "Fetching account numbers…") in _card(tabs, "overview", "Kimi account")["items"]
+
+
+def test_tool_views_have_no_account_card():
+    tabs = build_panel({}, [], [], today=date(2026, 11, 8))
+
+    titles = [c["title"] for c in tabs[0]["cards"]]
+    assert not any(t and t.endswith("account") for t in titles)
+
+
+def test_settings_providers_card():
+    state = {"enabled_tools": [], "enabled_providers": ["openai", "kimi"],
+             "provider_keys": ["kimi"]}
+
+    tab = settings_tab(state, paused=False, interval_choices=[15], detected=[])
+
+    items = next(c for c in tab["cards"] if c["title"] == "AI providers")["items"]
+    assert ("switch", "OpenAI", True, "provider:openai") in items
+    assert ("switch", "DeepSeek", False, "provider:deepseek") in items
+    assert ("buttons", [("Add API Key", "key", "provider_key:openai")]) in items
+    assert ("buttons", [("Replace Key", "key", "provider_key:kimi"),
+                        ("Remove Key", "trash", "provider_key_remove:kimi")]) in items
+    assert ("row", "Kimi key", "In Keychain") in items
+    # DeepSeek is off: no key controls for it.
+    assert not any("deepseek" in str(i[-1]) for i in items if i[0] == "buttons")
+
+
+def test_long_notes_are_split_into_lines():
+    from stats_tabs import note_lines
+    text = "the API key was rejected (HTTP 401) and some more words to make it long"
+
+    lines = note_lines(text)
+
+    assert len(lines) > 1
+    assert all(item[0] == "note" and len(item[1]) <= 46 for item in lines)
+    assert " ".join(item[1] for item in lines) == text

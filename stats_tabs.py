@@ -19,9 +19,12 @@ Actions are strings the app handles in TokenCounterApp.handle_action.
 Kept free of AppKit so it can be unit-tested.
 """
 
-from datetime import date, timedelta
+import textwrap
+from datetime import date, datetime, timedelta
 
+from accounts import KEY_HELP, WINDOW_DAYS
 from pricing import estimate_cost, format_dollars
+from providers import PROVIDER_NAMES, PROVIDERS
 from token_math import format_count
 from tools import TOOL_NAMES, TOOLS, tool_view
 from version import FORK_AUTHOR, ORIGINAL_AUTHOR, __version__
@@ -34,6 +37,7 @@ from usage_stats import (
     models_in_range,
     recorded_cost_in_range,
     top_projects,
+    total_in_range,
 )
 
 CATEGORY_LABELS = [
@@ -50,6 +54,12 @@ LEADERBOARD_VIEWS = [("total", "Total"), ("day", "Yesterday")]
 CHART_DAYS = 14
 MENU_BAR_FONT_SIZES = [10, 11, 12, 13, 14]
 DEFAULT_MENU_BAR_FONT_SIZE = 12
+NOTE_WIDTH = 46  # characters that fit on one note line
+
+
+def note_lines(text):
+    """A note too long for one line, as several note items."""
+    return [("note", line) for line in textwrap.wrap(text, NOTE_WIDTH)]
 
 
 def _ordinal_suffix(day):
@@ -112,8 +122,9 @@ def _share_bar(label, count, whole):
 class _Data:
     """Everything the tabs need, computed once per render."""
 
-    def __init__(self, view, today):
+    def __init__(self, view, today, state=None):
         self.view = view
+        self.state = state or {}
         self.daily = view["daily"]
         self.today = today
         self.week_start = today - timedelta(days=6)
@@ -170,6 +181,7 @@ def _overview_tab(d):
                     )
                 ],
             },
+        ] + _account_cards(d) + [
             {
                 "title": f"Last {CHART_DAYS} days",
                 "items": [("chart", [t for _, t in series], f"Peak {format_count(peak)}")],
@@ -177,6 +189,49 @@ def _overview_tab(d):
             {"title": "History", "items": history_items},
         ],
     }
+
+
+def _account_cards(d):
+    """For a provider view: numbers from the provider's own API, kept apart
+    from the local counts above (they overlap)."""
+    key = d.view["key"]
+    if key not in PROVIDER_NAMES:
+        return []
+    title = f"{d.view['name']} account"
+    if key not in d.state.get("provider_keys", []):
+        return [{"title": title, "items": note_lines(
+            "Add an API key in Settings to include usage from outside this Mac."
+        )}]
+    saved = d.state.get("accounts", {}).get(key)
+    if not saved:
+        return [{"title": title, "items": [("note", "Fetching account numbers…")]}]
+    items = []
+    daily = saved.get("daily") or {}
+    if daily:
+        items += [
+            ("row", "Today", format_count(total_in_range(daily, d.today, d.today))),
+            ("row", "Last 7 days", format_count(total_in_range(daily, d.week_start, d.today))),
+            ("row", f"Last {WINDOW_DAYS} days", format_count(
+                total_in_range(daily, d.today - timedelta(days=WINDOW_DAYS - 1), d.today))),
+        ]
+    cost = saved.get("cost") or {}
+    if cost:
+        def billed(days):
+            start = d.today - timedelta(days=days - 1)
+            return sum(v for iso, v in cost.items() if start <= date.fromisoformat(iso) <= d.today)
+        items += [
+            ("row", "Billed, last 7 days", format_dollars(billed(7))),
+            ("row", f"Billed, last {WINDOW_DAYS} days", format_dollars(billed(WINDOW_DAYS))),
+        ]
+    items += [("row", label, value) for label, value in saved.get("rows", [])]
+    for note in saved.get("notes", []):
+        items += note_lines(note)
+    if saved.get("error"):
+        items += note_lines(f"Couldn't update: {saved['error']}")
+    if saved.get("fetched_at"):
+        fetched = datetime.fromisoformat(saved["fetched_at"])
+        items.append(("note", f"Updated {fetched.strftime('%-I:%M %p')}"))
+    return [{"title": title, "items": items}]
 
 
 def _breakdown_card(title, models, extra):
@@ -372,6 +427,24 @@ def _tools_card(state, detected):
     return {"title": "AI tools", "items": items}
 
 
+def _providers_card(state):
+    enabled = state.get("enabled_providers", [])
+    keys = state.get("provider_keys", [])
+    items = note_lines("Each company's models, used in any of your tools.")
+    for key, name in PROVIDERS:
+        items.append(("switch", name, key in enabled, f"provider:{key}"))
+        if key not in enabled:
+            continue
+        if key in keys:
+            items.append(("row", f"{name} key", "In Keychain"))
+            items.append(("buttons", [("Replace Key", "key", f"provider_key:{key}"),
+                                      ("Remove Key", "trash", f"provider_key_remove:{key}")]))
+        else:
+            items.append(("buttons", [("Add API Key", "key", f"provider_key:{key}")]))
+            items += note_lines(KEY_HELP[key] + " (optional).")
+    return {"title": "AI providers", "items": items}
+
+
 def welcome_tab(detected, chosen):
     """First-run picker: which AI tools to track."""
     if detected:
@@ -392,7 +465,7 @@ def welcome_tab(detected, chosen):
 
 def tool_choices(state, detected):
     """[(key, name)] for the tool switcher: enabled tools that are on this
-    Mac or have saved history."""
+    Mac or have saved history, then enabled providers."""
     enabled = state.get("enabled_tools", [])
     choices = []
     for key, name in TOOLS:
@@ -401,6 +474,8 @@ def tool_choices(state, detected):
         view = tool_view(state, key)
         if key in detected or view["daily"] or view["grand_total"]:
             choices.append((key, name))
+    providers = state.get("enabled_providers", [])
+    choices += [(key, name) for key, name in PROVIDERS if key in providers]
     return choices
 
 
@@ -416,6 +491,7 @@ def settings_tab(state, paused, interval_choices, detected):
         "icon": "slider.horizontal.3",
         "cards": [
             _tools_card(state, detected),
+            _providers_card(state),
             {
                 "title": "Menu bar",
                 "items": [
@@ -467,15 +543,18 @@ def leaderboard_enabled(state):
 def build_panel(view, state, sessions, friends, show_leaderboard, today=None):
     """The tabs shown in the tab bar, in order, for one tool's view (or the
     combined view)."""
-    d = _Data(view, today or date.today())
+    d = _Data(view, today or date.today(), state)
     tabs = [
         _overview_tab(d),
         _breakdown_tab(d),
         _models_tab(d),
         _projects_tab(d),
         _cost_tab(d),
-        _sessions_tab(view, sessions),
     ]
+    # A running session can't be tied to one provider, so provider views
+    # have no Live tab.
+    if view["key"] not in PROVIDER_NAMES:
+        tabs.append(_sessions_tab(view, sessions))
     if show_leaderboard:
         tabs.append(_leaderboard_tab(state, friends))
     return tabs
