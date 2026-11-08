@@ -214,3 +214,7 @@ def daily_series(daily, end, days):
         day = end - timedelta(days=offset)
         series.append((day, total_in_range(daily, day, day)))
     return series
+
+
+class SourceFormatError(Exception):
+    """A tool's data on disk isn't in the shape the app expects."""
