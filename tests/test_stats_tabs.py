@@ -297,12 +297,14 @@ def test_provider_view_has_no_live_sessions_tab():
     assert "sessions" not in [t["key"] for t in tabs]
 
 
-def test_provider_account_card_without_key_says_how_to_add_one():
+def test_without_a_key_the_optional_account_card_sits_at_the_bottom():
     tabs = build_panel({}, [], [], today=date(2026, 11, 8), view=_provider_view())
 
-    items = _card(tabs, "overview", "OpenAI account")["items"]
-    assert items[0][0] == "note"
-    assert "API key in Settings" in " ".join(i[1] for i in items)
+    cards = tabs[0]["cards"]
+    assert cards[-1]["title"] == "Whole account (optional)"
+    items = cards[-1]["items"]
+    assert items[-1] == ("buttons", [("Add API Key", "key", "provider_key:openai")])
+    assert not any(c["title"] == "OpenAI account" for c in cards)
 
 
 def test_provider_account_card_with_fetched_numbers():
@@ -328,6 +330,8 @@ def test_provider_account_card_with_fetched_numbers():
     assert "Hello" in notes
     assert any("boom" in n for n in notes)
     assert "Updated 9:05 AM" in notes
+    assert items[-1] == ("buttons", [("Replace Key", "key", "provider_key:openai"),
+                                     ("Remove Key", "trash", "provider_key_remove:openai")])
 
 
 def test_provider_account_card_before_first_fetch():
@@ -345,7 +349,7 @@ def test_tool_views_have_no_account_card():
     assert not any(t and t.endswith("account") for t in titles)
 
 
-def test_settings_providers_card():
+def test_settings_only_switches_providers_on_and_off():
     state = {"enabled_tools": [], "enabled_providers": ["openai", "kimi"],
              "provider_keys": ["kimi"]}
 
@@ -355,12 +359,8 @@ def test_settings_providers_card():
     items = next(c for c in tab["cards"] if c["title"] == "AI tools")["items"]
     assert ("switch", "OpenAI", True, "provider:openai") in items
     assert ("switch", "DeepSeek", False, "provider:deepseek") in items
-    assert ("buttons", [("Add API Key", "key", "provider_key:openai")]) in items
-    assert ("buttons", [("Replace Key", "key", "provider_key:kimi"),
-                        ("Remove Key", "trash", "provider_key_remove:kimi")]) in items
-    assert ("row", "Kimi key", "In Keychain") in items
-    # DeepSeek is off: no key controls for it.
-    assert not any("deepseek" in str(i[-1]) for i in items if i[0] == "buttons")
+    # Turning a provider on asks for nothing: no key buttons or notes here.
+    assert all(i[0] == "switch" for i in items)
 
 
 def test_long_notes_are_split_into_lines():

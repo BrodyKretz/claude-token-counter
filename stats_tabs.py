@@ -187,7 +187,7 @@ def _overview_tab(d):
                 "items": [("chart", [t for _, t in series], f"Peak {format_count(peak)}")],
             },
             {"title": "History", "items": history_items},
-        ],
+        ] + _account_invite(d),
     }
 
 
@@ -197,14 +197,14 @@ def _account_cards(d):
     key = d.view["key"]
     if key not in PROVIDER_NAMES:
         return []
-    title = f"{d.view['name']} account"
     if key not in d.state.get("provider_keys", []):
-        return [{"title": title, "items": note_lines(
-            "Add an API key in Settings to include usage from outside this Mac."
-        )}]
+        return []
+    title = f"{d.view['name']} account"
+    key_buttons = ("buttons", [("Replace Key", "key", f"provider_key:{key}"),
+                               ("Remove Key", "trash", f"provider_key_remove:{key}")])
     saved = d.state.get("accounts", {}).get(key)
     if not saved:
-        return [{"title": title, "items": [("note", "Fetching account numbers…")]}]
+        return [{"title": title, "items": [("note", "Fetching account numbers…"), key_buttons]}]
     items = []
     daily = saved.get("daily") or {}
     if daily:
@@ -231,7 +231,21 @@ def _account_cards(d):
     if saved.get("fetched_at"):
         fetched = datetime.fromisoformat(saved["fetched_at"])
         items.append(("note", f"Updated {fetched.strftime('%-I:%M %p')}"))
+    items.append(key_buttons)
     return [{"title": title, "items": items}]
+
+
+def _account_invite(d):
+    """For a provider view without a key: a quiet, optional way to add one,
+    below everything else. The numbers above never need it."""
+    key = d.view["key"]
+    if key not in PROVIDER_NAMES or key in d.state.get("provider_keys", []):
+        return []
+    items = note_lines("Usage from other computers or the website "
+                       "needs an API key. Not needed for this Mac.")
+    items += note_lines(KEY_HELP[key] + ".")
+    items.append(("buttons", [("Add API Key", "key", f"provider_key:{key}")]))
+    return [{"title": "Whole account (optional)", "items": items}]
 
 
 def _breakdown_card(title, models, extra):
@@ -429,22 +443,10 @@ def _tools_card(state, detected):
 
 
 def _provider_items(state):
-    """Switches for OpenAI, DeepSeek and Kimi, each with its optional API key."""
+    """On/off switches for OpenAI, DeepSeek and Kimi. Their optional API key
+    lives on each provider's own Home tab, so turning one on asks nothing."""
     enabled = state.get("enabled_providers", [])
-    keys = state.get("provider_keys", [])
-    items = []
-    for key, name in PROVIDERS:
-        items.append(("switch", name, key in enabled, f"provider:{key}"))
-        if key not in enabled:
-            continue
-        if key in keys:
-            items.append(("row", f"{name} key", "In Keychain"))
-            items.append(("buttons", [("Replace Key", "key", f"provider_key:{key}"),
-                                      ("Remove Key", "trash", f"provider_key_remove:{key}")]))
-        else:
-            items.append(("buttons", [("Add API Key", "key", f"provider_key:{key}")]))
-            items += note_lines(KEY_HELP[key] + " (optional).")
-    return items
+    return [("switch", name, key in enabled, f"provider:{key}") for key, name in PROVIDERS]
 
 
 def welcome_tab(detected, chosen):

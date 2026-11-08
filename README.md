@@ -52,13 +52,13 @@ A panel opens with a row of tabs along the top. Click an icon to switch tabs:
 - **Active Sessions** -- every Claude Code terminal you currently have open, and how many tokens each one has used
 - **Leaderboard (Beta)** -- hidden unless you turn it on in Settings; see below, this one's still a work in progress
 
-At the bottom: the date you started tracking, a **Settings** button (which AIs to track -- coding tools and providers -- with optional provider API keys, and whether to combine tools; what the menu bar shows -- lifetime total, today's total, or just the icon -- and its text size; how often to scan; pause scanning; start at login; show the Leaderboard; version and credits) and **Quit**. Click anywhere outside the panel to close it.
+At the bottom: the date you started tracking, a **Settings** button (which AIs to track -- coding tools and providers -- and whether to combine tools; what the menu bar shows -- lifetime total, today's total, or just the icon -- and its text size; how often to scan; pause scanning; start at login; show the Leaderboard; version and credits) and **Quit**. Click anywhere outside the panel to close it.
 
 ### OpenAI, DeepSeek and Kimi
 
 Turn on OpenAI, DeepSeek or Kimi under **AI tools** in Settings (listed after your coding tools) (all off by default) and each appears in the **Tracking** dropdown. A provider view counts that company's models wherever they ran -- Claude Code, Codex or opencode -- using the tools' own exact token counts, so **no sign-in or key is needed**. The model name decides the company (`gpt-*`, `o3`, `codex-*` → OpenAI; `deepseek-*` → DeepSeek; `kimi-*`, `moonshot-*` → Kimi), so e.g. Kimi via OpenRouter still counts as Kimi. While any provider is on, every tool found on your Mac is read (read-only), so Codex counts toward OpenAI even if the Codex view is off. "Combine all tools" doesn't add provider views on top, so nothing is counted twice. Live Sessions isn't shown for providers, since a running session can't be tied to one company.
 
-**Optional API key, for usage from outside this Mac.** Each provider view has an account card. Add a key in Settings and it shows what that provider's own API reports:
+**Optional API key, for usage from outside this Mac.** Turning a provider on never asks for a key. If you want usage from other computers or the website too, use **Add API Key** in the "Whole account (optional)" card at the bottom of that provider's Home tab; it then shows what the provider's own API reports (and Replace/Remove Key live in that card):
 
 | Provider | Key | Shows |
 |---|---|---|
