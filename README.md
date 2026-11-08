@@ -34,13 +34,14 @@ If step 1 fails because `rumps` isn't installed, the script installs it for you 
 - **Claude tokens used** -- your exact running total
 - **Today's tokens used** -- just what you've used since midnight
 - **Tracking since** -- the date you first installed this
-- **Token Breakdown** -- today's and lifetime tokens split into input, output, cache write and cache read
-- **By Model** -- today's and lifetime tokens per model (Opus, Sonnet, Haiku...)
-- **Top Projects (Last 7 Days)** -- the 3 folders you used the most tokens in this week
-- **History** -- yesterday, last 7 days, this month, and your biggest day so far
-- **Estimated API Cost** -- what your usage would cost at Anthropic's pay-as-you-go API prices. Just for fun: a Pro or Max subscription is flat-rate, so you aren't billed this. Prices live in `pricing.py` and will drift over time.
+- **Stats tabs** -- click a tab to switch, without the menu closing:
+  - **Tokens** -- today's and lifetime tokens split into input, output, cache write and cache read
+  - **Models** -- today's and lifetime tokens per model (Opus, Sonnet, Haiku...)
+  - **Projects** -- the 3 folders you used the most tokens in over the last 7 days
+  - **History** -- yesterday, last 7 days, this month, and your biggest day so far
+  - **Cost** -- what your usage would cost at Anthropic's pay-as-you-go API prices. Just for fun: a Pro or Max subscription is flat-rate, so you aren't billed this. Prices live in `pricing.py` and will drift over time.
+  - **Sessions** -- every Claude Code terminal you currently have open, and how many tokens each one has used
 - **Leaderboard (Beta)** -- see below, this one's still a work in progress
-- **Active Sessions** -- every Claude Code terminal you currently have open, and how many tokens each one has used
 - **Menu Bar Shows** -- show your lifetime total, today's total, or just the icon
 - **Pause/Resume Scanning**, plus a **Scans every _N_ seconds** menu to change how often it checks for new usage
 - **Start at Login** -- turn auto-start on or off
@@ -78,7 +79,7 @@ This removes it completely from starting at login. Your accumulated total (`stat
 - It also files each message into a per-day bucket (by model, token type and project), which powers the breakdown, history and cost menus. The first time you run a version with these menus, it fills the buckets from the logs still on disk; anything Claude Code already pruned shows up as "older, no detail".
 - It remembers exactly how far into each log file it has already counted, so re-checking every 15 seconds only adds *new* tokens, never double-counts, and the total keeps climbing correctly even after Claude Code deletes old logs (it prunes anything older than ~30 days).
 
-**A note on "Active Sessions" accuracy:** Claude Code doesn't expose which exact log file belongs to which open terminal, so this is a best-effort match based on which directory each terminal is running in and which log file in that directory was written to most recently. If you have two terminals open in the exact same folder at once, they may get matched to the wrong one of each other -- everything else is unaffected.
+**A note on "Sessions" tab accuracy:** Claude Code doesn't expose which exact log file belongs to which open terminal, so this is a best-effort match based on which directory each terminal is running in and which log file in that directory was written to most recently. If you have two terminals open in the exact same folder at once, they may get matched to the wrong one of each other -- everything else is unaffected.
 
 ## Project layout
 
@@ -86,6 +87,8 @@ This removes it completely from starting at login. Your accumulated total (`stat
 app.py                       menu bar UI (rumps) -- also handles the "start at login" toggle
 token_math.py                reads the jsonl logs and does the token accounting
 usage_stats.py               per-day buckets and the breakdown / model / project / history views
+stats_tabs.py                what each stats tab shows, as plain data
+stats_panel.py               draws the tabbed stats panel inside the menu (AppKit)
 pricing.py                   API price table and the estimated-cost math
 active_sessions.py           matches running `claude` processes to their sessions
 leaderboard.py               Leaderboard (Beta) -- local friends-list storage and sorting

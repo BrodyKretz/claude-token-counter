@@ -24,7 +24,8 @@ from gist_sync import (
     update_gist,
 )
 from leaderboard import load_friends, save_friends, sorted_friends
-from pricing import estimate_cost, format_dollars
+from stats_panel import StatsPanel
+from stats_tabs import build_tabs, format_long_date
 from token_math import (
     backfill_daily,
     format_count,
@@ -33,15 +34,7 @@ from token_math import (
     save_state,
     sum_usage_for_today,
 )
-from usage_stats import (
-    category_totals,
-    history,
-    model_totals,
-    models_all_time,
-    models_in_range,
-    top_projects,
-    total_in_range,
-)
+from usage_stats import total_in_range
 
 STATE_FILE = Path(__file__).resolve().parent / "state.json"
 REFRESH_SECONDS = 15
@@ -53,26 +46,6 @@ TITLE_MODES = [
     ("today", "Today's Total"),
     ("icon", "Icon Only"),
 ]
-
-CATEGORY_LABELS = [
-    ("input", "Input"),
-    ("output", "Output"),
-    ("cache_write", "Cache write"),
-    ("cache_read", "Cache read"),
-]
-
-MODEL_FAMILIES = ["fable", "mythos", "opus", "sonnet", "haiku"]
-
-
-def _ordinal_suffix(day):
-    if 11 <= day % 100 <= 13:
-        return "th"
-    return {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
-
-
-def _format_tracking_date(iso_date_str):
-    parsed = date.fromisoformat(iso_date_str)
-    return f"{parsed.strftime('%B')} {parsed.day}{_ordinal_suffix(parsed.day)}, {parsed.year}"
 
 
 def _format_interval(seconds):
@@ -94,38 +67,6 @@ def _bold_menu_item(title):
     )
     item._menuitem.setAttributedTitle_(attributed)
     return item
-
-
-def _info_item(title):
-    """A plain, non-clickable menu row (shown greyed out like a label)."""
-    item = rumps.MenuItem(title)
-    item._menuitem.setEnabled_(False)
-    return item
-
-
-def _model_display_name(model_id):
-    """'claude-opus-5-5' -> 'Opus 5.5', 'claude-haiku-4-5-20251001' -> 'Haiku 4.5'."""
-    parts = model_id.split("-")
-    if len(parts) < 2 or parts[0] != "claude" or parts[1] not in MODEL_FAMILIES:
-        return model_id
-    version = [p for p in parts[2:] if p.isdigit() and len(p) <= 2]
-    name = parts[1].capitalize()
-    return f"{name} {'.'.join(version)}" if version else name
-
-
-def _merge_cache_writes(categories):
-    merged = dict(categories)
-    merged["cache_write"] = merged.pop("cache_write_5m", 0) + merged.pop(
-        "cache_write_1h", 0
-    )
-    return merged
-
-
-def _percent(part, whole):
-    if not whole or not part:
-        return "0%"
-    share = part / whole * 100
-    return "<1%" if share < 1 else f"{share:.0f}%"
 
 
 def _service_target():
@@ -171,11 +112,13 @@ class TokenCounterApp(rumps.App):
         self.total_item = rumps.MenuItem(self._total_label())
         self.today_item = rumps.MenuItem(self._today_label())
         self.since_item = rumps.MenuItem(self._since_label())
-        self.breakdown_item = rumps.MenuItem("Token Breakdown")
-        self.models_item = rumps.MenuItem("By Model")
-        self.projects_item = rumps.MenuItem("Top Projects (Last 7 Days)")
-        self.history_item = rumps.MenuItem("History")
-        self.cost_item = rumps.MenuItem("Estimated API Cost")
+        self.state.setdefault("stats_tab", 0)
+        self.stats_panel = StatsPanel(
+            selected_tab=self.state["stats_tab"], on_tab_change=self.set_stats_tab
+        )
+        # rumps wraps NSMenuItems; swap in the panel's view-backed item.
+        self.stats_item = rumps.MenuItem("Stats")
+        self.stats_item._menuitem = self.stats_panel.menuitem
         self.title_mode_item = rumps.MenuItem("Menu Bar Shows")
         for mode, label in TITLE_MODES:
             option = rumps.MenuItem(label, callback=self.set_title_mode)
@@ -183,7 +126,6 @@ class TokenCounterApp(rumps.App):
             option.state = mode == self.state["title_mode"]
             self.title_mode_item.add(option)
         self.leaderboard_item = rumps.MenuItem("Leaderboard (Beta)")
-        self.sessions_item = rumps.MenuItem("Active Sessions")
         self.pause_item = rumps.MenuItem("Pause Scanning", callback=self.toggle_pause)
         self.interval_item = rumps.MenuItem(self._interval_label())
         for seconds in SCAN_INTERVAL_CHOICES:
@@ -205,23 +147,17 @@ class TokenCounterApp(rumps.App):
             self.today_item,
             self.since_item,
             None,
-            self.breakdown_item,
-            self.models_item,
-            self.projects_item,
-            self.history_item,
-            self.cost_item,
+            self.stats_item,
             None,
             self.leaderboard_item,
-            self.sessions_item,
             None,
             self.title_mode_item,
             self.pause_item,
             self.interval_item,
             self.login_item,
         ]
-        self._update_sessions_menu()
         self._rebuild_leaderboard_menu()
-        self._rebuild_stats_menus()
+        self._update_stats_panel()
         self._update_title()
 
         self.timer = rumps.Timer(self.refresh, self.state["scan_interval_seconds"])
@@ -253,127 +189,18 @@ class TokenCounterApp(rumps.App):
         save_state(self.state, STATE_FILE)
         self._update_title()
 
-    @staticmethod
-    def _reset_submenu(item):
-        if item:
-            item.clear()
-
-    def _rebuild_stats_menus(self):
-        daily = self.state["daily"]
-        today = date.today()
-        week_start = today - timedelta(days=6)
-        today_models = models_in_range(daily, today, today)
-        week_models = models_in_range(daily, week_start, today)
-        month_models = models_in_range(daily, today.replace(day=1), today)
-        lifetime_models = models_all_time(daily)
-        lifetime_detailed = sum(t for _, t in model_totals(lifetime_models))
-        earlier = max(self.state["grand_total"] - lifetime_detailed, 0)
-
-        # Token Breakdown
-        self._reset_submenu(self.breakdown_item)
-        for heading, models, extra in (
-            ("Today", today_models, 0),
-            ("Lifetime", lifetime_models, earlier),
-        ):
-            self.breakdown_item.add(_bold_menu_item(heading))
-            categories = _merge_cache_writes(category_totals(models))
-            whole = sum(categories.values()) + extra
-            for key, label in CATEGORY_LABELS:
-                count = categories[key]
-                self.breakdown_item.add(
-                    _info_item(f"{label}: {count:,} ({_percent(count, whole)})")
-                )
-            if extra:
-                self.breakdown_item.add(
-                    _info_item(f"Older, no detail: {extra:,} ({_percent(extra, whole)})")
-                )
-            self.breakdown_item.add(None)
-        self.breakdown_item.add(
-            _info_item("Cache read = context re-sent each turn, billed cheaply")
-        )
-
-        # By Model
-        self._reset_submenu(self.models_item)
-        for heading, models in (("Today", today_models), ("Lifetime", lifetime_models)):
-            self.models_item.add(_bold_menu_item(heading))
-            rows = model_totals(models)
-            if not rows:
-                self.models_item.add(_info_item("No usage yet"))
-            for model, tokens in rows:
-                self.models_item.add(
-                    _info_item(f"{_model_display_name(model)} — {format_count(tokens)}")
-                )
-            self.models_item.add(None)
-        if earlier:
-            self.models_item.add(
-                _info_item(f"Plus {format_count(earlier)} older tokens with no model detail")
-            )
-
-        # Top Projects
-        self._reset_submenu(self.projects_item)
-        projects = top_projects(daily, week_start, today)
-        if not projects:
-            self.projects_item.add(_info_item("No usage in the last 7 days"))
-        for project, tokens in projects:
-            self.projects_item.add(_info_item(f"{project} — {format_count(tokens)}"))
-
-        # History
-        self._reset_submenu(self.history_item)
-        stats = history(daily, today)
-        self.history_item.add(_info_item(f"Yesterday: {stats['yesterday']:,}"))
-        self.history_item.add(_info_item(f"Last 7 days: {stats['last_7_days']:,}"))
-        self.history_item.add(_info_item(f"This month: {stats['this_month']:,}"))
-        if stats["biggest_day"]:
-            best_date, best_tokens = stats["biggest_day"]
-            self.history_item.add(
-                _info_item(
-                    f"Biggest day: {_format_tracking_date(best_date.isoformat())} "
-                    f"— {format_count(best_tokens)}"
-                )
-            )
-
-        # Estimated API Cost
-        self._reset_submenu(self.cost_item)
-        unpriced_total = 0
-        for label, models in (
-            ("Today", today_models),
-            ("Last 7 days", week_models),
-            ("This month", month_models),
-            ("All logged usage", lifetime_models),
-        ):
-            dollars, unpriced = estimate_cost(models)
-            unpriced_total = max(unpriced_total, unpriced)
-            self.cost_item.add(_info_item(f"{label}: {format_dollars(dollars)}"))
-        self.cost_item.add(None)
-        if unpriced_total:
-            self.cost_item.add(
-                _info_item(f"{format_count(unpriced_total)} tokens from unknown models not priced")
-            )
-        if earlier:
-            self.cost_item.add(
-                _info_item(f"{format_count(earlier)} older tokens not priced (no model detail)")
-            )
-        self.cost_item.add(
-            _info_item("Estimate at API list prices. Claude Pro is flat-rate,")
-        )
-        self.cost_item.add(_info_item("so you aren't billed this."))
-
     def _since_label(self):
-        return f"Tracking since: {_format_tracking_date(self.state['first_seen_at'])}"
+        return f"Tracking since: {format_long_date(self.state['first_seen_at'])}"
 
     def _interval_label(self):
         return f"Scans every {_format_interval(self.state['scan_interval_seconds'])}"
 
-    def _update_sessions_menu(self):
-        if self.sessions_item:
-            self.sessions_item.clear()
-        sessions = active_sessions()
-        if not sessions:
-            self.sessions_item.add(rumps.MenuItem("No active sessions"))
-            return
-        for session in sessions:
-            label = f"{session['label']} — {format_count(session['tokens'])} tokens"
-            self.sessions_item.add(rumps.MenuItem(label))
+    def _update_stats_panel(self):
+        self.stats_panel.update(build_tabs(self.state, active_sessions()))
+
+    def set_stats_tab(self, index):
+        self.state["stats_tab"] = index
+        save_state(self.state, STATE_FILE)
 
     def _leaderboard_payload(self):
         yesterday = date.today() - timedelta(days=1)
@@ -565,8 +392,7 @@ class TokenCounterApp(rumps.App):
         self._update_title()
         self.total_item.title = self._total_label()
         self.today_item.title = self._today_label()
-        self._rebuild_stats_menus()
-        self._update_sessions_menu()
+        self._update_stats_panel()
         self._maybe_run_daily_leaderboard_sync()
         self._rebuild_leaderboard_menu()
 
