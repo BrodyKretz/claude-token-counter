@@ -11,10 +11,15 @@ def running_claude_cwds():
     """Return the working directory (str) of each currently running `claude` CLI
     process, one entry per process (duplicates if several share a directory).
     """
+    return running_cwds("claude")
+
+
+def running_cwds(name):
+    """Working directory of each running process whose executable is `name`."""
     ps_output = subprocess.run(
         ["ps", "-eo", "pid,comm"], capture_output=True, text=True, check=True
     ).stdout
-    pids = claude_pids(ps_output)
+    pids = pids_named(ps_output, name)
 
     cwds = []
     for pid in pids:
@@ -30,7 +35,11 @@ def running_claude_cwds():
 
 
 def claude_pids(ps_output):
-    """PIDs of `claude` processes in `ps -eo pid,comm` output.
+    return pids_named(ps_output, "claude")
+
+
+def pids_named(ps_output, name):
+    """PIDs of processes named `name` in `ps -eo pid,comm` output.
 
     macOS `ps` prints the full executable path in the comm column (e.g. the
     VS Code extension's .../native-binary/claude), so match on the basename.
@@ -41,7 +50,7 @@ def claude_pids(ps_output):
         if len(parts) != 2:
             continue
         pid, comm = parts
-        if os.path.basename(comm.strip()) == "claude":
+        if os.path.basename(comm.strip()) == name:
             pids.append(pid.strip())
     return pids
 
@@ -89,3 +98,15 @@ def active_sessions(projects_dir=CLAUDE_PROJECTS_DIR, cwds=None):
 
     sessions.sort(key=lambda s: s["tokens"], reverse=True)
     return sessions
+
+
+def running_tool_sessions(name, home=None):
+    """Running sessions of a tool that has no per-session token counts
+    (Codex, opencode): one row per process, labeled by its folder."""
+    # Processes sitting in "/" are background helpers (e.g. an editor
+    # extension's server), not sessions someone started in a project.
+    return [
+        {"label": display_name(cwd, home), "tokens": None}
+        for cwd in running_cwds(name)
+        if cwd != "/"
+    ]
