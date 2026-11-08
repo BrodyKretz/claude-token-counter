@@ -35,6 +35,7 @@ cat > "$PLIST_PATH" <<EOF
     <key>ProgramArguments</key>
     <array>
         <string>${APP_EXEC}</string>
+        <string>--foreground</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
