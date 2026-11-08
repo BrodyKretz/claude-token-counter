@@ -6,3 +6,5 @@ agent.err.log
 __pycache__/
 .pytest_cache/
 *.pyc
+.worktrees/
+.superpowers/
