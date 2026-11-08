@@ -57,7 +57,7 @@ def _api_request(method, url, token=None, payload=None):
 def create_gist(token, content):
     """Create a new secret Gist holding `content`, returning its ID (the friend code)."""
     payload = {
-        "description": "Claude Token Counter leaderboard entry",
+        "description": "Claude Tracker leaderboard entry",
         "public": False,
         "files": {GIST_FILENAME: {"content": json.dumps(content)}},
     }

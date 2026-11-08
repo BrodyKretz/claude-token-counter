@@ -1,4 +1,4 @@
-# Claude Token Counter
+# Claude Tracker
 
 A tiny macOS menu bar app (no Dock icon) that shows how many Claude Code tokens you've used, in total, forever. It just sits in your menu bar and the number keeps going up.
 
@@ -13,7 +13,7 @@ By default it never connects to the internet or sends your data anywhere. The on
 - Log files already on your own Mac (`~/.claude/projects/`, which Claude Code itself writes)
 - `launchctl`, macOS's own built-in tool, only to turn its "start at login" setting on or off
 
-**The one exception is the Leaderboard (Beta) feature, and it's entirely opt-in** -- nothing below happens unless you click "Get Set Up with Leaderboard" yourself. See the [Leaderboard (Beta)](#leaderboard-beta) section for exactly what that does.
+**The one exception is the Leaderboard (Beta) feature, and it's entirely opt-in** -- its tab is hidden until you turn on **Show Leaderboard (Beta)** in Settings, and nothing below happens unless you then click "Set Up Leaderboard" yourself. See the [Leaderboard (Beta)](#leaderboard-beta) section for exactly what that does.
 
 ## Quick start
 
@@ -39,15 +39,15 @@ A panel opens with a row of tabs along the top. Click an icon to switch tabs:
 - **Projects** -- the 3 folders you used the most tokens in over the last 7 days
 - **Estimated API Cost** -- what your usage would cost at Anthropic's pay-as-you-go API prices. Just for fun: a Pro or Max subscription is flat-rate, so you aren't billed this. Prices live in `pricing.py` and will drift over time.
 - **Active Sessions** -- every Claude Code terminal you currently have open, and how many tokens each one has used
-- **Leaderboard (Beta)** -- see below, this one's still a work in progress
+- **Leaderboard (Beta)** -- hidden unless you turn it on in Settings; see below, this one's still a work in progress
 
-At the bottom: the date you started tracking, a **Settings** button (what the menu bar shows -- lifetime total, today's total, or just the icon; how often to scan; pause scanning; start at login) and **Quit**. Click anywhere outside the panel to close it.
+At the bottom: the date you started tracking, a **Settings** button (what the menu bar shows -- lifetime total, today's total, or just the icon -- and its text size; how often to scan; pause scanning; start at login; show the Leaderboard; version and credits) and **Quit**. Click anywhere outside the panel to close it.
 
 ### Leaderboard (Beta)
 
-This is a genuine work in progress, not a finished feature -- treat it as rougher and less battle-tested than everything else in this app. It's also completely opt-in: until you click "Get Set Up with Leaderboard," none of what follows happens, and the rest of the app (token counting, Active Sessions, etc.) works exactly the same with or without it.
+This is a genuine work in progress, not a finished feature -- treat it as rougher and less battle-tested than everything else in this app. It's also completely opt-in: its tab only appears after you turn on **Show Leaderboard (Beta)** in Settings, and until you click "Set Up Leaderboard," none of what follows happens, and the rest of the app (token counting, Active Sessions, etc.) works exactly the same with or without it.
 
-Here is exactly what it does, in order, when you click "Get Set Up with Leaderboard":
+Here is exactly what it does, in order, when you click "Set Up Leaderboard":
 
 1. **It opens your browser** to a GitHub page that creates a Personal Access Token scoped *only* to the `gist` permission (nothing else on your GitHub account -- it cannot read your repos, emails, or anything beyond gists). You generate the token yourself on GitHub's own site.
 2. **You paste that token into a prompt in the app.** The token is stored in your **macOS Keychain** (the same secure system macOS itself uses for saved passwords) -- never written to any file in this project, never logged, never leaves your Mac except as an authorization header sent directly to `api.github.com` over HTTPS.
@@ -77,6 +77,13 @@ This removes it completely from starting at login. Your accumulated total (`stat
 
 **A note on "Sessions" tab accuracy:** Claude Code doesn't expose which exact log file belongs to which open terminal, so this is a best-effort match based on which directory each terminal is running in and which log file in that directory was written to most recently. If you have two terminals open in the exact same folder at once, they may get matched to the wrong one of each other -- everything else is unaffected.
 
+## Version and credits
+
+Current version: **2.0.0**, following [Semantic Versioning](https://semver.org) (MAJOR.MINOR.PATCH). The version lives in `version.py` and is shown in Settings.
+
+- Original app by [BrodyKretz](https://github.com/BrodyKretz/claude-token-counter)
+- Redesign and new features (panel, stats tabs, cost estimate, fixes) by Raymond Tian ([raymondtian30](https://github.com/raymondtian30/claude-token-counter))
+
 ## Project layout
 
 ```
@@ -86,6 +93,7 @@ usage_stats.py               per-day buckets and the breakdown / model / project
 stats_tabs.py                what each panel tab shows, as plain data
 panel_view.py                draws the panel (tabs, cards, bars, chart, settings) with AppKit
 pricing.py                   API price table and the estimated-cost math
+version.py                   app name, version number and credits
 active_sessions.py           matches running `claude` processes to their sessions
 leaderboard.py               Leaderboard (Beta) -- local friends-list storage and sorting
 gist_sync.py                 Leaderboard (Beta) -- Keychain token storage + GitHub Gist API calls

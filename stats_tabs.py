@@ -23,6 +23,7 @@ from datetime import date, timedelta
 
 from pricing import estimate_cost, format_dollars
 from token_math import format_count
+from version import FORK_AUTHOR, ORIGINAL_AUTHOR, __version__
 from usage_stats import (
     category_totals,
     daily_series,
@@ -45,6 +46,8 @@ MODEL_FAMILIES = ["fable", "mythos", "opus", "sonnet", "haiku"]
 TITLE_MODES = [("lifetime", "Lifetime"), ("today", "Today"), ("icon", "Icon only")]
 LEADERBOARD_VIEWS = [("total", "Total"), ("day", "Yesterday")]
 CHART_DAYS = 14
+MENU_BAR_FONT_SIZES = [10, 11, 12, 13, 14]
+DEFAULT_MENU_BAR_FONT_SIZE = 12
 
 
 def _ordinal_suffix(day):
@@ -337,6 +340,7 @@ def settings_tab(state, paused, interval_choices):
     modes = [key for key, _ in TITLE_MODES]
     mode = state.get("title_mode", "lifetime")
     interval = state.get("scan_interval_seconds", interval_choices[0])
+    font_size = state.get("menu_bar_font_size", DEFAULT_MENU_BAR_FONT_SIZE)
     return {
         "key": "settings",
         "title": "Settings",
@@ -348,6 +352,11 @@ def settings_tab(state, paused, interval_choices):
                 "items": [
                     ("segmented", "Shows", [label for _, label in TITLE_MODES],
                      modes.index(mode) if mode in modes else 0, "title_mode"),
+                    ("popup", "Text size", [f"{size} pt" for size in MENU_BAR_FONT_SIZES],
+                     MENU_BAR_FONT_SIZES.index(font_size)
+                     if font_size in MENU_BAR_FONT_SIZES
+                     else MENU_BAR_FONT_SIZES.index(DEFAULT_MENU_BAR_FONT_SIZE),
+                     "menu_bar_font_size"),
                 ],
             },
             {
@@ -361,21 +370,42 @@ def settings_tab(state, paused, interval_choices):
             },
             {
                 "title": "General",
-                "items": [("switch", "Start at login", state.get("start_at_login", True), "login")],
+                "items": [
+                    ("switch", "Start at login", state.get("start_at_login", True), "login"),
+                    ("switch", "Show Leaderboard (Beta)", leaderboard_enabled(state),
+                     "leaderboard_enabled"),
+                ],
+            },
+            {
+                "title": "About",
+                "items": [
+                    ("row", "Version", __version__),
+                    ("row", "Original app by", ORIGINAL_AUTHOR),
+                    ("row", "Redesign & new features by", FORK_AUTHOR),
+                    ("buttons", [("View on GitHub", "arrow.up.right.square", "open_repo")]),
+                ],
             },
         ],
     }
 
 
+def leaderboard_enabled(state):
+    """Whether the Leaderboard tab (and its daily sync) is on. Defaults to on
+    only for people who already set the leaderboard up."""
+    return state.get("leaderboard_enabled", bool(state.get("my_gist_id")))
+
+
 def build_panel(state, sessions, friends, today=None):
     """The tabs shown in the tab bar, in order."""
     d = _Data(state, today or date.today())
-    return [
+    tabs = [
         _overview_tab(d),
         _breakdown_tab(d),
         _models_tab(d),
         _projects_tab(d),
         _cost_tab(d),
         _sessions_tab(sessions),
-        _leaderboard_tab(state, friends),
     ]
+    if leaderboard_enabled(state):
+        tabs.append(_leaderboard_tab(state, friends))
+    return tabs

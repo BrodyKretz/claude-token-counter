@@ -6,7 +6,13 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import rumps
-from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
+from AppKit import (
+    NSApplication,
+    NSApplicationActivationPolicyAccessory,
+    NSAttributedString,
+    NSFont,
+    NSFontAttributeName,
+)
 
 from active_sessions import active_sessions
 from gist_sync import (
@@ -20,10 +26,13 @@ from gist_sync import (
 from leaderboard import load_friends, save_friends, sorted_friends
 from panel_view import Panel
 from stats_tabs import (
+    DEFAULT_MENU_BAR_FONT_SIZE,
     LEADERBOARD_VIEWS,
+    MENU_BAR_FONT_SIZES,
     TITLE_MODES,
     build_panel,
     format_long_date,
+    leaderboard_enabled,
     settings_tab,
 )
 from token_math import (
@@ -35,6 +44,7 @@ from token_math import (
     sum_usage_for_today,
 )
 from usage_stats import total_in_range
+from version import APP_NAME, REPO_URL
 
 STATE_FILE = Path(__file__).resolve().parent / "state.json"
 REFRESH_SECONDS = 15
@@ -63,7 +73,7 @@ def set_start_at_login(enabled):
 
 class TokenCounterApp(rumps.App):
     def __init__(self):
-        super().__init__("Claude Tokens", quit_button=None)
+        super().__init__(APP_NAME, quit_button=None)
         self.state = load_state(STATE_FILE)
         self.state.setdefault("first_seen_at", None)
         self.state.setdefault("start_at_login", True)
@@ -73,6 +83,7 @@ class TokenCounterApp(rumps.App):
         self.state.setdefault("leaderboard_name", None)
         self.state.setdefault("last_leaderboard_sync_date", None)
         self.state.setdefault("title_mode", "lifetime")
+        self.state.setdefault("menu_bar_font_size", DEFAULT_MENU_BAR_FONT_SIZE)
         self.state.setdefault("panel_tab", "overview")
         self.state.pop("stats_tab", None)  # from the earlier in-menu tabs
         if self.state["first_seen_at"] is None:
@@ -100,6 +111,7 @@ class TokenCounterApp(rumps.App):
 
     def _attach_panel(self):
         self.panel.attach(self._nsapp.nsstatusitem)
+        self._update_title()
 
     def _today_tokens(self):
         today = date.today()
@@ -108,11 +120,24 @@ class TokenCounterApp(rumps.App):
     def _update_title(self):
         mode = self.state["title_mode"]
         if mode == "today":
-            self.title = f"🪙 {format_count(self._today_tokens())}"
+            title = f"🪙 {format_count(self._today_tokens())}"
         elif mode == "icon":
-            self.title = "🪙"
+            title = "🪙"
         else:
-            self.title = f"🪙 {format_count(self.state['grand_total'])}"
+            title = f"🪙 {format_count(self.state['grand_total'])}"
+        self.title = title
+        # Redraw it at the size picked in Settings, with even-width digits so
+        # the item doesn't jiggle as the count changes.
+        status_item = getattr(getattr(self, "_nsapp", None), "nsstatusitem", None)
+        if status_item is not None:
+            font = NSFont.monospacedDigitSystemFontOfSize_weight_(
+                self.state["menu_bar_font_size"], 0.0
+            )
+            status_item.button().setAttributedTitle_(
+                NSAttributedString.alloc().initWithString_attributes_(
+                    title, {NSFontAttributeName: font}
+                )
+            )
 
     def _render_panel(self):
         view = self.state["leaderboard_view"]
@@ -152,12 +177,22 @@ class TokenCounterApp(rumps.App):
             self.state["title_mode"] = TITLE_MODES[value][0]
             save_state(self.state, STATE_FILE)
             self._update_title()
+        elif action == "menu_bar_font_size":
+            self.state["menu_bar_font_size"] = MENU_BAR_FONT_SIZES[value]
+            save_state(self.state, STATE_FILE)
+            self._update_title()
         elif action == "scan_interval":
             self.set_scan_interval(SCAN_INTERVAL_CHOICES[value])
         elif action == "pause":
             self.set_paused(value)
         elif action == "login":
             self.set_start_at_login(value)
+        elif action == "leaderboard_enabled":
+            self.state["leaderboard_enabled"] = value
+            save_state(self.state, STATE_FILE)
+        elif action == "open_repo":
+            self.panel.close()
+            webbrowser.open(REPO_URL)
         self._render_panel()
 
     def _leaderboard_payload(self):
@@ -274,6 +309,8 @@ class TokenCounterApp(rumps.App):
 
     def _maybe_run_daily_leaderboard_sync(self):
         today = date.today().isoformat()
+        if not leaderboard_enabled(self.state):
+            return
         if self.state.get("last_leaderboard_sync_date") == today:
             return
         self.push_leaderboard_update()

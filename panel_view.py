@@ -45,6 +45,8 @@ from AppKit import (
 )
 from Foundation import NSObject
 
+from version import APP_NAME
+
 WIDTH = 360
 PAD = 12  # outer padding
 CARD_PAD = 12  # padding inside a card
@@ -392,7 +394,7 @@ class Panel:
     def _draw_header(self, y, inner):
         self.root.addSubview_(_label("🪙", NSMakeRect(PAD, y + 2, 28, 28), size=22))
         self.root.addSubview_(
-            _label("Token Tracker", NSMakeRect(PAD + 34, y, 200, 18),
+            _label(APP_NAME, NSMakeRect(PAD + 34, y, 200, 18),
                    size=14, weight=NSFontWeightSemibold)
         )
         self.root.addSubview_(

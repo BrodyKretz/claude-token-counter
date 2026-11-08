@@ -56,7 +56,8 @@ def test_formatters():
 def test_build_panel_with_data():
     daily = {}
     record_entry(daily, entry("2026-07-29T12:00:00.000Z", input_tokens=10, output_tokens=5))
-    state = {"grand_total": 115, "daily": daily, "leaderboard_view": "total"}
+    state = {"grand_total": 115, "daily": daily, "leaderboard_view": "total",
+             "leaderboard_enabled": True}
     sessions = [{"label": "~/proj", "tokens": 1500}]
     friends = [{"name": "Ann", "total_tokens": 200, "yesterday_tokens": 1},
                {"name": "Bo", "total_tokens": 100, "yesterday_tokens": 2}]
@@ -81,7 +82,8 @@ def test_build_panel_with_data():
 
 
 def test_build_panel_with_no_data():
-    tabs = {t["key"]: t for t in build_panel({"grand_total": 0}, [], [], today=date(2026, 7, 29))}
+    tabs = {t["key"]: t for t in build_panel({"grand_total": 0, "leaderboard_enabled": True}, [], [],
+                                             today=date(2026, 7, 29))}
     for tab in tabs.values():
         assert_well_formed(tab)
     assert ("note", "No Claude Code sessions running") in items_of(tabs["sessions"])
@@ -106,6 +108,29 @@ def test_settings_tab_reflects_state():
     assert_well_formed(tab)
     items = items_of(tab)
     assert ("segmented", "Shows", ["Lifetime", "Today", "Icon only"], 2, "title_mode") in items
-    assert items[1][3] == 3  # 60 seconds selected
+    assert items[1] == ("popup", "Text size", ["10 pt", "11 pt", "12 pt", "13 pt", "14 pt"], 2,
+                        "menu_bar_font_size")  # 12 pt by default
+    assert items[2][3] == 3  # 60 seconds selected
     assert ("switch", "Pause scanning", True, "pause") in items
     assert ("switch", "Start at login", False, "login") in items
+
+
+def test_leaderboard_tab_hidden_unless_enabled():
+    def keys(state):
+        return [t["key"] for t in build_panel(state, [], [], today=date(2026, 7, 29))]
+
+    assert "leaderboard" not in keys({"grand_total": 0})
+    assert "leaderboard" in keys({"grand_total": 0, "leaderboard_enabled": True})
+    # Existing leaderboard users keep the tab by default.
+    assert "leaderboard" in keys({"grand_total": 0, "my_gist_id": "abc"})
+    assert "leaderboard" not in keys({"grand_total": 0, "my_gist_id": "abc", "leaderboard_enabled": False})
+
+
+def test_settings_about_card_shows_version_and_credits():
+    from version import __version__
+
+    tab = settings_tab({}, paused=False, interval_choices=[15])
+    about = next(c for c in tab["cards"] if c["title"] == "About")
+    assert ("row", "Version", __version__) in about["items"]
+    assert ("row", "Original app by", "BrodyKretz") in about["items"]
+    assert ("row", "Redesign & new features by", "Raymond Tian") in about["items"]
