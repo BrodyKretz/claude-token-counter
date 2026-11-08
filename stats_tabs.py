@@ -423,14 +423,16 @@ def _tools_card(state, detected):
     # turned off.
     keys = [key for key, _ in TOOLS if key in detected or key in enabled]
     items = [("switch", TOOL_NAMES[key], key in enabled, f"tool:{key}") for key in keys]
+    items += _provider_items(state)
     items.append(("switch", "Combine all tools", state.get("combine_tools", False), "combine_tools"))
     return {"title": "AI tools", "items": items}
 
 
-def _providers_card(state):
+def _provider_items(state):
+    """Switches for OpenAI, DeepSeek and Kimi, each with its optional API key."""
     enabled = state.get("enabled_providers", [])
     keys = state.get("provider_keys", [])
-    items = note_lines("Each company's models, used in any of your tools.")
+    items = []
     for key, name in PROVIDERS:
         items.append(("switch", name, key in enabled, f"provider:{key}"))
         if key not in enabled:
@@ -442,7 +444,7 @@ def _providers_card(state):
         else:
             items.append(("buttons", [("Add API Key", "key", f"provider_key:{key}")]))
             items += note_lines(KEY_HELP[key] + " (optional).")
-    return {"title": "AI providers", "items": items}
+    return items
 
 
 def welcome_tab(detected, chosen):
@@ -501,7 +503,6 @@ def settings_tab(state, paused, interval_choices, detected):
         "icon": "slider.horizontal.3",
         "cards": [
             _tools_card(state, detected),
-            _providers_card(state),
             {
                 "title": "Menu bar",
                 "items": [

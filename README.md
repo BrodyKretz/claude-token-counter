@@ -18,7 +18,7 @@ By default it never connects to the internet or sends your data anywhere. The on
   From these it reads only token counts, which model was used, when, and which project folder. It skips your prompts, code and replies, and never touches opencode's account or credential tables.
 - `launchctl`, macOS's own built-in tool, only to turn its "start at login" setting on or off
 
-**There are two exceptions, both opt-in:** an API key you add for an AI provider (see [AI providers](#ai-providers-openai-deepseek-kimi)), and the Leaderboard (Beta) feature.
+**There are two exceptions, both opt-in:** an API key you add for an AI provider (see [OpenAI, DeepSeek and Kimi](#openai-deepseek-and-kimi)), and the Leaderboard (Beta) feature.
 
 **The Leaderboard (Beta) is entirely opt-in** -- its tab is hidden until you turn on **Show Leaderboard (Beta)** in Settings, and nothing below happens unless you then click "Set Up Leaderboard" yourself. See the [Leaderboard (Beta)](#leaderboard-beta) section for exactly what that does.
 
@@ -52,11 +52,11 @@ A panel opens with a row of tabs along the top. Click an icon to switch tabs:
 - **Active Sessions** -- every Claude Code terminal you currently have open, and how many tokens each one has used
 - **Leaderboard (Beta)** -- hidden unless you turn it on in Settings; see below, this one's still a work in progress
 
-At the bottom: the date you started tracking, a **Settings** button (which AI tools to track and whether to combine them; which AI providers to track and their optional API keys; what the menu bar shows -- lifetime total, today's total, or just the icon -- and its text size; how often to scan; pause scanning; start at login; show the Leaderboard; version and credits) and **Quit**. Click anywhere outside the panel to close it.
+At the bottom: the date you started tracking, a **Settings** button (which AIs to track -- coding tools and providers -- with optional provider API keys, and whether to combine tools; what the menu bar shows -- lifetime total, today's total, or just the icon -- and its text size; how often to scan; pause scanning; start at login; show the Leaderboard; version and credits) and **Quit**. Click anywhere outside the panel to close it.
 
-### AI providers (OpenAI, DeepSeek, Kimi)
+### OpenAI, DeepSeek and Kimi
 
-Turn on OpenAI, DeepSeek or Kimi under **AI providers** in Settings (all off by default) and each appears in the **Tracking** dropdown. A provider view counts that company's models wherever they ran -- Claude Code, Codex or opencode -- using the tools' own exact token counts, so **no sign-in or key is needed**. The model name decides the company (`gpt-*`, `o3`, `codex-*` → OpenAI; `deepseek-*` → DeepSeek; `kimi-*`, `moonshot-*` → Kimi), so e.g. Kimi via OpenRouter still counts as Kimi. While any provider is on, every tool found on your Mac is read (read-only), so Codex counts toward OpenAI even if the Codex view is off. "Combine all tools" doesn't add provider views on top, so nothing is counted twice. Live Sessions isn't shown for providers, since a running session can't be tied to one company.
+Turn on OpenAI, DeepSeek or Kimi under **AI tools** in Settings (listed after your coding tools) (all off by default) and each appears in the **Tracking** dropdown. A provider view counts that company's models wherever they ran -- Claude Code, Codex or opencode -- using the tools' own exact token counts, so **no sign-in or key is needed**. The model name decides the company (`gpt-*`, `o3`, `codex-*` → OpenAI; `deepseek-*` → DeepSeek; `kimi-*`, `moonshot-*` → Kimi), so e.g. Kimi via OpenRouter still counts as Kimi. While any provider is on, every tool found on your Mac is read (read-only), so Codex counts toward OpenAI even if the Codex view is off. "Combine all tools" doesn't add provider views on top, so nothing is counted twice. Live Sessions isn't shown for providers, since a running session can't be tied to one company.
 
 **Optional API key, for usage from outside this Mac.** Each provider view has an account card. Add a key in Settings and it shows what that provider's own API reports:
 

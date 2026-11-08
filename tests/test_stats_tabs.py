@@ -210,7 +210,8 @@ def test_settings_lists_detected_tools_only():
     tab = settings_tab(state, paused=False, interval_choices=[15], detected=["claude_code", "opencode"])
 
     tools_card = next(c for c in tab["cards"] if c["title"] == "AI tools")
-    assert tools_card["items"] == [
+    tools = [i for i in tools_card["items"] if i[-1].startswith("tool:") or i[-1] == "combine_tools"]
+    assert tools == [
         ("switch", "Claude Code", True, "tool:claude_code"),
         ("switch", "opencode", False, "tool:opencode"),
         ("switch", "Combine all tools", False, "combine_tools"),
@@ -350,7 +351,8 @@ def test_settings_providers_card():
 
     tab = settings_tab(state, paused=False, interval_choices=[15], detected=[])
 
-    items = next(c for c in tab["cards"] if c["title"] == "AI providers")["items"]
+    assert "AI providers" not in [c["title"] for c in tab["cards"]]
+    items = next(c for c in tab["cards"] if c["title"] == "AI tools")["items"]
     assert ("switch", "OpenAI", True, "provider:openai") in items
     assert ("switch", "DeepSeek", False, "provider:deepseek") in items
     assert ("buttons", [("Add API Key", "key", "provider_key:openai")]) in items
@@ -386,3 +388,13 @@ def test_view_choices_per_tool_matches_tool_choices():
     state = {"enabled_tools": ["claude_code"], "enabled_providers": ["kimi"]}
 
     assert view_choices(state, ["claude_code"]) == tool_choices(state, ["claude_code"])
+
+
+def test_tools_and_providers_share_one_card_with_combine_last():
+    state = {"enabled_tools": ["claude_code"], "enabled_providers": ["kimi"], "combine_tools": False}
+
+    tab = settings_tab(state, paused=False, interval_choices=[15], detected=["claude_code", "codex"])
+
+    items = next(c for c in tab["cards"] if c["title"] == "AI tools")["items"]
+    switches = [i[1] for i in items if i[0] == "switch"]
+    assert switches == ["Claude Code", "Codex", "OpenAI", "DeepSeek", "Kimi", "Combine all tools"]
