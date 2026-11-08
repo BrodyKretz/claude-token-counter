@@ -6,6 +6,8 @@ The whole view is rebuilt on each render, which keeps the code simple and
 is cheap at this size.
 """
 
+import time
+
 import objc
 from AppKit import (
     NSBezierPath,
@@ -25,7 +27,11 @@ from AppKit import (
     NSMakeRect,
     NSMinYEdge,
     NSPopover,
-    NSPopoverBehaviorTransient,
+    NSEvent,
+    NSEventMaskKeyDown,
+    NSEventMaskLeftMouseDown,
+    NSEventMaskRightMouseDown,
+    NSPopoverBehaviorApplicationDefined,
     NSPopUpButton,
     NSSegmentDistributionFillEqually,
     NSSegmentedControl,
@@ -207,10 +213,13 @@ class _ActionTarget(NSObject):
     def togglePanel_(self, sender):
         # Showing the popover while the status bar button is still handling
         # its click fails silently, so open it on the next run-loop pass.
-        self.performSelector_withObject_afterDelay_("deferredToggle:", sender, 0.0)
+        self.performSelector_withObject_afterDelay_("deferredToggle:", sender, 0.05)
 
     def deferredToggle_(self, sender):
         self.panel.toggle(sender)
+
+    def retryShow_(self, _):
+        self.panel._show(retries_left=getattr(self, "retries_left", 0))
 
 
 # --- the panel ---------------------------------------------------------------
@@ -236,8 +245,13 @@ class Panel:
         controller.setView_(self.root)
         self.popover = NSPopover.alloc().init()
         self.popover.setContentViewController_(controller)
-        self.popover.setBehavior_(NSPopoverBehaviorTransient)
+        # Not NSPopoverBehaviorTransient: that closes the panel whenever this
+        # background app isn't active, which macOS doesn't always allow it to
+        # be. Outside clicks and Esc are handled with event monitors instead.
+        self.popover.setBehavior_(NSPopoverBehaviorApplicationDefined)
         self.popover.setAnimates_(False)
+        self._monitors = []
+        self._last_toggle = 0.0
 
     # -- wiring
 
@@ -250,19 +264,62 @@ class Panel:
         self._button = button
 
     def toggle(self, _sender=None):
+        # One click on the status item can deliver the action twice; ignore
+        # a second toggle that arrives right after the first.
+        now = time.monotonic()
+        if now - self._last_toggle < 0.3:
+            return
+        self._last_toggle = now
         if self.popover.isShown():
             self.close()
-            return
+        else:
+            self._show(retries_left=3)
+
+    def _show(self, retries_left):
         from AppKit import NSApplication
 
         NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
         self.popover.showRelativeToRect_ofView_preferredEdge_(
             self._button.bounds(), self._button, NSMinYEdge
         )
+        if self.popover.isShown():
+            self._start_monitors()
+        elif retries_left:
+            # The status bar can still be busy with the click; try again shortly.
+            self._target.retries_left = retries_left - 1
+            self._target.performSelector_withObject_afterDelay_("retryShow:", None, 0.05)
 
     def close(self):
+        self._stop_monitors()
         if self.popover.isShown():
-            self.popover.performClose_(None)
+            self.popover.close()
+
+    def _start_monitors(self):
+        self._stop_monitors()
+
+        def outside_click(_event):
+            # Global monitors only see clicks in other apps, so any click
+            # here is outside the panel.
+            self.close()
+
+        def escape_key(event):
+            if event.keyCode() == 53:  # Esc
+                self.close()
+                return None
+            return event
+
+        self._monitors = [
+            NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(
+                NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown, outside_click
+            ),
+            NSEvent.addLocalMonitorForEventsMatchingMask_handler_(NSEventMaskKeyDown, escape_key),
+        ]
+
+    def _stop_monitors(self):
+        for monitor in self._monitors:
+            if monitor is not None:
+                NSEvent.removeMonitor_(monitor)
+        self._monitors = []
 
     def is_shown(self):
         return bool(self.popover.isShown())
