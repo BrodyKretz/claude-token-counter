@@ -44,6 +44,7 @@ from AppKit import (
     NSTextField,
     NSView,
     NSViewController,
+    NSWindow,
 )
 from Foundation import NSObject
 
@@ -246,7 +247,6 @@ class Panel:
         self.on_tab_change = on_tab_change
         self.selected = selected_tab
         self.tabs = []
-        self.settings = None
         self.footer = ""
         self.paused = False
         self._actions = []
@@ -326,15 +326,21 @@ class Panel:
             self.close()
 
         def escape_key(event):
-            if event.keyCode() == 53:  # Esc
+            if event.keyCode() == 53 and event.window() == self.root.window():  # Esc
                 self.close()
                 return None
             return event
 
+        def click_in_app(event):
+            # A click in this app's own windows (e.g. Settings) is outside too.
+            if event.window() != self.root.window():
+                self.close()
+            return event
+
+        clicks = NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown
         self._monitors = [
-            NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(
-                NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown, outside_click
-            ),
+            NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(clicks, outside_click),
+            NSEvent.addLocalMonitorForEventsMatchingMask_handler_(clicks, click_in_app),
             NSEvent.addLocalMonitorForEventsMatchingMask_handler_(NSEventMaskKeyDown, escape_key),
         ]
 
@@ -351,18 +357,15 @@ class Panel:
 
     def _select_tab(self, index):
         keys = [t["key"] for t in self.tabs]
-        self.selected = keys[index] if index < len(keys) else "settings"
+        if index >= len(keys):
+            return
+        self.selected = keys[index]
         if self.on_tab_change:
             self.on_tab_change(self.selected)
         self._draw()
 
     def _fire(self, tag, value):
-        action = self._actions[tag]
-        if action == "settings":
-            self.selected = "overview" if self.selected == "settings" else "settings"
-            self._draw()
-            return
-        self.on_action(action, value)
+        self.on_action(self._actions[tag], value)
 
     def _register(self, action):
         self._actions.append(action)
@@ -370,25 +373,23 @@ class Panel:
 
     # -- rendering
 
-    def render(self, tabs, settings, footer, paused, tool_choices=None, selected_tool=None,
+    def render(self, tabs, footer, paused, tool_choices=None, selected_tool=None,
                welcome=None, subtitle="for Claude Code"):
         """`tool_choices` [(key, name)] adds a tool switcher when there are 2+;
-        `welcome` (a tab) replaces everything with the first-run picker."""
+        `welcome` (a tab) replaces everything with the first-run picker.
+        Settings live in their own window (SettingsWindow)."""
         self.tabs = tabs
-        self.settings = settings
         self.footer = footer
         self.paused = paused
         self.tool_choices = tool_choices or []
         self.selected_tool = selected_tool
         self.welcome = welcome
         self.subtitle = subtitle
-        if self.selected not in [t["key"] for t in tabs] + ["settings"]:
+        if self.selected not in [t["key"] for t in tabs]:
             self.selected = tabs[0]["key"]
         self._draw()
 
     def _current_tab(self):
-        if self.selected == "settings":
-            return self.settings
         return next(t for t in self.tabs if t["key"] == self.selected)
 
     def _draw(self):
@@ -415,13 +416,6 @@ class Panel:
         y = self._draw_tab_bar(y, inner) + 12
 
         tab = self._current_tab()
-        if self.selected == "settings":
-            # Settings has no tab in the bar, so give it a visible title.
-            self.root.addSubview_(
-                _label(tab["title"], NSMakeRect(PAD + 2, y, inner, 20), size=15,
-                       weight=NSFontWeightSemibold)
-            )
-            y += 28
         for card in tab["cards"]:
             y = self._draw_card(card, y, inner) + GAP
 
@@ -673,10 +667,8 @@ class Panel:
             _label(self.footer, NSMakeRect(PAD + 20, y + 4, inner - 90, 16), size=11,
                    color=NSColor.secondaryLabelColor())
         )
-        settings_open = self.selected == "settings"
         icons = (
-            ("checkmark.circle" if settings_open else "slider.horizontal.3",
-             "Done" if settings_open else "Settings", "settings"),
+            ("slider.horizontal.3", "Settings", "open_settings"),
             ("xmark.circle", "Quit", "quit"),
         )
         for index, (icon, tip, action) in enumerate(icons):
@@ -686,13 +678,87 @@ class Panel:
             button.setBezelStyle_(15)  # NSBezelStyleAccessoryBarAction: subtle rounded
             button.setImage_(_symbol(icon, 13))
             button.setImagePosition_(NSImageOnly)
-            button.setContentTintColor_(
-                NSColor.controlAccentColor() if action == "settings" and settings_open
-                else NSColor.secondaryLabelColor()
-            )
+            button.setContentTintColor_(NSColor.secondaryLabelColor())
             button.setToolTip_(tip)
             button.setTarget_(self._target)
             button.setAction_("buttonClicked:")
             button.setTag_(self._register(action))
             self.root.addSubview_(button)
         return y + 24
+
+
+class SettingsWindow(Panel):
+    """Settings in a window of their own, drawn with the panel's cards and
+    controls. Clicks call on_action(action, value) like the panel's."""
+
+    TITLE = f"{APP_NAME} Settings"
+
+    def __init__(self, on_action):
+        self.on_action = on_action
+        self.on_tab_change = None
+        self.settings = None
+        self._actions = []
+        self._monitors = []
+        self._target = _ActionTarget.alloc().initWithPanel_(self)
+        self.root = _FlippedView.alloc().initWithFrame_(NSMakeRect(0, 0, WIDTH, 400))
+        self.scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(0, 0, WIDTH, 400))
+        self.scroll.setDocumentView_(self.root)
+        self.scroll.setHasVerticalScroller_(True)
+        self.scroll.setAutohidesScrollers_(True)
+        self.scroll.setDrawsBackground_(False)
+        self.window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(0, 0, WIDTH, 400),
+            1 | 2 | 4,  # titled, closable, miniaturizable
+            2,  # NSBackingStoreBuffered
+            False,
+        )
+        self.window.setTitle_(self.TITLE)
+        self.window.setReleasedWhenClosed_(False)
+        self.window.setContentView_(self.scroll)
+        self._placed = False
+
+    def render(self, settings):
+        self.settings = settings
+        self._draw()
+
+    def _draw(self):
+        if not self.settings:
+            return
+        for view in list(self.root.subviews()):
+            view.removeFromSuperview()
+        self._actions = []
+        inner = WIDTH - 2 * PAD
+        y = PAD
+        for card in self.settings["cards"]:
+            y = self._draw_card(card, y, inner) + GAP
+        self._set_height(y + PAD - GAP)
+
+    def _set_height(self, height):
+        self.root.setFrameSize_((WIDTH, height))
+        screen = NSScreen.mainScreen()
+        # Leave room for the title bar and the menu bar.
+        available = screen.visibleFrame().size.height - 80 if screen else height
+        frame = self.window.frame()
+        content = self.window.contentRectForFrameRect_(frame)
+        new_height = min(height, available)
+        if content.size.height != new_height:
+            top = frame.origin.y + frame.size.height
+            self.window.setContentSize_((WIDTH, new_height))
+            if self._placed:  # keep the title bar where it was
+                resized = self.window.frame()
+                self.window.setFrameTopLeftPoint_((resized.origin.x, top))
+
+    def show(self):
+        from AppKit import NSApplication
+
+        if not self._placed:
+            self.window.center()
+            self._placed = True
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        self.window.makeKeyAndOrderFront_(None)
+
+    def close(self):
+        self.window.orderOut_(None)
+
+    def is_shown(self):
+        return bool(self.window.isVisible())

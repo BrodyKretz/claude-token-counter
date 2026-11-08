@@ -29,7 +29,7 @@ from gist_sync import (
     update_gist,
 )
 from leaderboard import load_friends, save_friends, sorted_friends
-from panel_view import Panel
+from panel_view import Panel, SettingsWindow
 from single_instance import acquire_lock, observe_show_requests, request_show_panel
 from stats_tabs import (
     DEFAULT_MENU_BAR_FONT_SIZE,
@@ -146,6 +146,7 @@ class TokenCounterApp(rumps.App):
             on_tab_change=self.set_panel_tab,
             selected_tab=self.state["panel_tab"],
         )
+        self.settings_window = SettingsWindow(on_action=self.handle_action)
         self._render_panel()
         self._update_title()
         # rumps creates the status item inside run(); swap its menu for the
@@ -229,7 +230,6 @@ class TokenCounterApp(rumps.App):
                 view, self.state, self._sessions_for(view), friends,
                 leaderboard_enabled(self.state) and view["key"] == "claude_code",
             ),
-            settings_tab(self.state, self.paused, SCAN_INTERVAL_CHOICES, detected),
             f"Tracking since {format_long_date(self.state['first_seen_at'])}",
             self.paused,
             tool_choices=choices,
@@ -237,6 +237,9 @@ class TokenCounterApp(rumps.App):
             welcome=None if self.state["onboarding_done"]
             else welcome_tab(detected, self.welcome_choice),
             subtitle="All AI tools" if view["key"] == "all" else f"for {view['name']}",
+        )
+        self.settings_window.render(
+            settings_tab(self.state, self.paused, SCAN_INTERVAL_CHOICES, detected)
         )
 
     def set_panel_tab(self, key):
@@ -258,7 +261,10 @@ class TokenCounterApp(rumps.App):
         if action == "quit":
             rumps.quit_application()
             return
-        if action in dialogs:
+        if action == "open_settings":
+            self.panel.close()
+            self.settings_window.show()
+        elif action in dialogs:
             # Dialogs can't sit on top of the popover, so close it first.
             self.panel.close()
             dialogs[action]()
