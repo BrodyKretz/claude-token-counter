@@ -1,7 +1,8 @@
 """What the panel shows, as plain data. panel_view.py draws it.
 
 build_panel() returns a list of tabs. Each tab is a dict:
-    {"key": str, "title": str, "icon": SF Symbol name, "cards": [card, ...]}
+    {"key": str, "title": str, "short": tab-bar caption, "icon": SF Symbol name,
+     "cards": [card, ...]}
 and each card is {"title": str or None, "items": [item, ...]} where an item is
 one of:
     ("tiles", [(label, value, icon), ...])     big numbers side by side
@@ -138,7 +139,8 @@ def _overview_tab(d):
     return {
         "key": "overview",
         "title": "Overview",
-        "icon": "house",
+        "short": "Home",
+        "icon": "square.grid.2x2",
         "cards": [
             {
                 "title": None,
@@ -176,6 +178,7 @@ def _breakdown_tab(d):
     return {
         "key": "breakdown",
         "title": "Token Types",
+        "short": "Types",
         "icon": "chart.pie",
         "cards": [_breakdown_card("Today", d.today_models, 0), lifetime],
     }
@@ -201,7 +204,8 @@ def _models_tab(d):
     return {
         "key": "models",
         "title": "Models",
-        "icon": "cpu",
+        "short": "Models",
+        "icon": "brain",
         "cards": [_models_card("Today", d.today_models), lifetime],
     }
 
@@ -216,6 +220,7 @@ def _projects_tab(d):
     return {
         "key": "projects",
         "title": "Projects",
+        "short": "Projects",
         "icon": "folder",
         "cards": [{"title": "Top projects · last 7 days", "items": items}],
     }
@@ -242,6 +247,7 @@ def _cost_tab(d):
     return {
         "key": "cost",
         "title": "Estimated API Cost",
+        "short": "Cost",
         "icon": "dollarsign.circle",
         "cards": [
             {
@@ -276,6 +282,7 @@ def _sessions_tab(sessions):
     return {
         "key": "sessions",
         "title": "Active Sessions",
+        "short": "Live",
         "icon": "terminal",
         "cards": [{"title": f"Open now ({len(sessions)})", "items": items}],
     }
@@ -320,6 +327,7 @@ def _leaderboard_tab(state, friends):
     return {
         "key": "leaderboard",
         "title": "Leaderboard (Beta)",
+        "short": "Friends",
         "icon": "trophy",
         "cards": [{"title": "Ranking", "items": ranking}, {"title": None, "items": actions}],
     }
@@ -332,7 +340,8 @@ def settings_tab(state, paused, interval_choices):
     return {
         "key": "settings",
         "title": "Settings",
-        "icon": "gearshape",
+        "short": "Settings",
+        "icon": "slider.horizontal.3",
         "cards": [
             {
                 "title": "Menu bar",

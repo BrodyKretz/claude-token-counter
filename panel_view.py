@@ -314,62 +314,74 @@ class Panel:
 
         y = PAD
         y = self._draw_header(y, inner)
-        y = self._draw_tab_bar(y, inner) + 14
+        y = self._draw_tab_bar(y, inner) + 12
 
         tab = self._current_tab()
-        self.root.addSubview_(
-            _label(tab["title"].upper(), NSMakeRect(PAD + 2, y, inner, 16),
-                   size=11, weight=NSFontWeightSemibold, color=NSColor.secondaryLabelColor())
-        )
-        y += 22
+        if self.selected == "settings":
+            # Settings has no tab in the bar, so give it a visible title.
+            self.root.addSubview_(
+                _label(tab["title"], NSMakeRect(PAD + 2, y, inner, 20), size=15,
+                       weight=NSFontWeightSemibold)
+            )
+            y += 28
         for card in tab["cards"]:
             y = self._draw_card(card, y, inner) + GAP
 
-        y = self._draw_footer(y + 2, inner)
+        y = self._draw_footer(y, inner)
         height = y + PAD
         self.root.setFrameSize_((WIDTH, height))
         self.popover.setContentSize_((WIDTH, height))
 
     def _draw_header(self, y, inner):
-        self.root.addSubview_(_label("🪙", NSMakeRect(PAD, y, 24, 22), size=16))
+        self.root.addSubview_(_label("🪙", NSMakeRect(PAD, y + 2, 28, 28), size=22))
         self.root.addSubview_(
-            _label("Token Tracker", NSMakeRect(PAD + 26, y + 2, 200, 20),
+            _label("Token Tracker", NSMakeRect(PAD + 34, y, 200, 18),
                    size=14, weight=NSFontWeightSemibold)
         )
+        self.root.addSubview_(
+            _label("for Claude Code", NSMakeRect(PAD + 34, y + 17, 200, 15), size=11,
+                   color=NSColor.secondaryLabelColor())
+        )
         if self.paused:
+            pill = _box(NSMakeRect(PAD + inner - 64, y + 6, 64, 20),
+                        NSColor.systemOrangeColor().colorWithAlphaComponent_(0.18), radius=10)
+            self.root.addSubview_(pill)
             self.root.addSubview_(
-                _label("Paused", NSMakeRect(PAD + inner - 100, y + 3, 100, 18), size=11,
-                       color=NSColor.systemOrangeColor(), align="right")
+                _label("Paused", NSMakeRect(PAD + inner - 64, y + 8, 64, 16), size=11,
+                       weight=NSFontWeightSemibold, color=NSColor.systemOrangeColor(),
+                       align="center")
             )
-        return y + 30
+        return y + 42
 
     def _draw_tab_bar(self, y, inner):
-        height = 40
-        bar = _box(NSMakeRect(PAD, y, inner, height), _faint(0.06), _faint(0.08), radius=12)
-        self.root.addSubview_(bar)
+        height = 44
         count = len(self.tabs)
-        slot = (inner - 8) / count
+        slot = inner / count
         for index, tab in enumerate(self.tabs):
-            x = PAD + 4 + index * slot
-            frame = NSMakeRect(x + 2, y + 4, slot - 4, height - 8)
+            x = PAD + index * slot
             selected = tab["key"] == self.selected
-            if selected:
-                highlight = _box(frame, NSColor.controlAccentColor().colorWithAlphaComponent_(0.22),
-                                 radius=8)
-                self.root.addSubview_(highlight)
-            button = NSButton.alloc().initWithFrame_(frame)
+            tint = NSColor.controlAccentColor() if selected else NSColor.secondaryLabelColor()
+            button = NSButton.alloc().initWithFrame_(NSMakeRect(x, y, slot, 26))
             button.setBordered_(False)
-            button.setImage_(_symbol(tab["icon"], 15))
+            button.setImage_(_symbol(tab["icon"], 16, NSFontWeightSemibold if selected else 0.0))
             button.setImagePosition_(NSImageOnly)
-            button.setContentTintColor_(
-                NSColor.controlAccentColor() if selected else NSColor.secondaryLabelColor()
-            )
+            button.setContentTintColor_(tint)
             button.setToolTip_(tab["title"])
             button.setTag_(index)
             button.setTarget_(self._target)
             button.setAction_("tabClicked:")
             self.root.addSubview_(button)
-        return y + height
+            caption = _label(tab["short"], NSMakeRect(x, y + 26, slot, 13), size=9,
+                             weight=NSFontWeightSemibold if selected else 0.0,
+                             color=tint, align="center")
+            self.root.addSubview_(caption)
+            if selected:
+                underline = _box(NSMakeRect(x + slot * 0.25, y + height - 3, slot * 0.5, 3),
+                                 NSColor.controlAccentColor(), radius=1.5)
+                self.root.addSubview_(underline)
+        hairline = _box(NSMakeRect(PAD, y + height, inner, 1), _faint(0.1), radius=0)
+        self.root.addSubview_(hairline)
+        return y + height + 1
 
     def _card_height(self, card):
         height = CARD_PAD * 2
@@ -379,6 +391,10 @@ class Panel:
         return height
 
     def _draw_card(self, card, y, inner):
+        if not card["title"] and [item[0] for item in card["items"]] == ["tiles"]:
+            # Tiles are already boxes; skip the card around them.
+            self._draw_tiles(card["items"][0], PAD, y, inner)
+            return y + 58
         height = self._card_height(card)
         self.root.addSubview_(_box(NSMakeRect(PAD, y, inner, height), _faint(0.05), _faint(0.08)))
         x = PAD + CARD_PAD
@@ -404,25 +420,19 @@ class Panel:
         for index, (label, value, icon) in enumerate(tiles):
             tx = x + index * (tile_width + gap)
             self.root.addSubview_(_box(NSMakeRect(tx, y, tile_width, 58), _faint(0.06), radius=8))
+            text_x = tx + 10
             if icon:
-                image_view = NSImageView.imageViewWithImage_(_symbol(icon, 11))
-                image_view.setContentTintColor_(NSColor.secondaryLabelColor())
-                label_width = 8 + len(label) * 7
-                start = tx + (tile_width - label_width - 16) / 2
-                image_view.setFrame_(NSMakeRect(start, y + 8, 14, 14))
+                image_view = NSImageView.imageViewWithImage_(_symbol(icon, 11, NSFontWeightSemibold))
+                image_view.setContentTintColor_(NSColor.controlAccentColor())
+                image_view.setFrame_(NSMakeRect(tx + 10, y + 9, 14, 14))
                 self.root.addSubview_(image_view)
-                self.root.addSubview_(
-                    _label(label, NSMakeRect(start + 16, y + 6, label_width + 10, 16), size=12,
-                           color=NSColor.secondaryLabelColor())
-                )
-            else:
-                self.root.addSubview_(
-                    _label(label, NSMakeRect(tx, y + 6, tile_width, 16), size=12,
-                           color=NSColor.secondaryLabelColor(), align="center")
-                )
-            value_field = _label(value, NSMakeRect(tx, y + 26, tile_width, 26), size=20,
-                                 weight=NSFontWeightSemibold, align="center")
-            value_field.setFont_(NSFont.monospacedDigitSystemFontOfSize_weight_(20, NSFontWeightSemibold))
+                text_x += 18
+            self.root.addSubview_(
+                _label(label, NSMakeRect(text_x, y + 8, tile_width - (text_x - tx) - 8, 16),
+                       size=11, color=NSColor.secondaryLabelColor())
+            )
+            value_field = _label(value, NSMakeRect(tx + 10, y + 26, tile_width - 20, 26))
+            value_field.setFont_(NSFont.monospacedDigitSystemFontOfSize_weight_(21, NSFontWeightSemibold))
             self.root.addSubview_(value_field)
 
     def _draw_chart(self, item, x, y, width):
@@ -518,29 +528,36 @@ class Panel:
     # -- footer
 
     def _draw_footer(self, y, inner):
-        clock = NSImageView.imageViewWithImage_(_symbol("clock", 11))
-        clock.setContentTintColor_(NSColor.secondaryLabelColor())
-        clock.setFrame_(NSMakeRect(PAD + 2, y + 2, 14, 14))
-        self.root.addSubview_(clock)
+        self.root.addSubview_(_box(NSMakeRect(PAD, y, inner, 1), _faint(0.1), radius=0))
+        y += 9
+        calendar = NSImageView.imageViewWithImage_(_symbol("calendar", 11))
+        calendar.setContentTintColor_(NSColor.secondaryLabelColor())
+        calendar.setFrame_(NSMakeRect(PAD + 2, y + 5, 14, 14))
+        self.root.addSubview_(calendar)
         self.root.addSubview_(
-            _label(self.footer, NSMakeRect(PAD + 20, y, inner - 20, 18), size=12,
+            _label(self.footer, NSMakeRect(PAD + 20, y + 4, inner - 90, 16), size=11,
                    color=NSColor.secondaryLabelColor())
         )
-        y += 28
-        half = (inner - 10) / 2
         settings_open = self.selected == "settings"
-        for index, (title, icon, action) in enumerate(
-            (
-                ("Done" if settings_open else "Settings",
-                 "checkmark" if settings_open else "gearshape", "settings"),
-                ("Quit", "power", "quit"),
+        icons = (
+            ("checkmark.circle" if settings_open else "slider.horizontal.3",
+             "Done" if settings_open else "Settings", "settings"),
+            ("xmark.circle", "Quit", "quit"),
+        )
+        for index, (icon, tip, action) in enumerate(icons):
+            button = NSButton.alloc().initWithFrame_(
+                NSMakeRect(PAD + inner - 30 * (len(icons) - index), y, 28, 24)
             )
-        ):
-            button = NSButton.buttonWithTitle_target_action_(title, self._target, "buttonClicked:")
-            button.setImage_(_symbol(icon, 12))
-            button.setImagePosition_(NSImageLeading)
-            button.setControlSize_(3)  # large
-            button.setFrame_(NSMakeRect(PAD + index * (half + 10), y, half, 32))
+            button.setBezelStyle_(15)  # NSBezelStyleAccessoryBarAction: subtle rounded
+            button.setImage_(_symbol(icon, 13))
+            button.setImagePosition_(NSImageOnly)
+            button.setContentTintColor_(
+                NSColor.controlAccentColor() if action == "settings" and settings_open
+                else NSColor.secondaryLabelColor()
+            )
+            button.setToolTip_(tip)
+            button.setTarget_(self._target)
+            button.setAction_("buttonClicked:")
             button.setTag_(self._register(action))
             self.root.addSubview_(button)
-        return y + 32
+        return y + 24

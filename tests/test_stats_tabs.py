@@ -27,7 +27,7 @@ def entry(ts, model="claude-opus-5-5", cwd="/x/proj", **usage):
 
 
 def assert_well_formed(tab):
-    assert {"key", "title", "icon", "cards"} <= tab.keys()
+    assert {"key", "title", "short", "icon", "cards"} <= tab.keys()
     for card in tab["cards"]:
         assert card["items"], tab["key"]
         for item in card["items"]:
