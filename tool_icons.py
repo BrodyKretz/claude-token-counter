@@ -84,8 +84,13 @@ _cache = {}
 
 def menu_bar_image(tool):
     """An NSImage sized for the menu bar, or None to keep the coin."""
-    if tool in _cache:
-        return _cache[tool]
+    return icon_image(tool, MENU_BAR_ICON_SIZE)
+
+
+def icon_image(tool, size):
+    """`tool`'s icon as a `size`-point NSImage, or None to keep the coin."""
+    if (tool, size) in _cache:
+        return _cache[(tool, size)]
     from AppKit import NSImage, NSWorkspace
 
     workspace = NSWorkspace.sharedWorkspace()
@@ -103,15 +108,15 @@ def menu_bar_image(tool):
             image = NSImage.alloc().initWithContentsOfFile_(source["path"])
         if image is not None:
             image = image.copy()
-            image.setSize_((MENU_BAR_ICON_SIZE, MENU_BAR_ICON_SIZE))
+            image.setSize_((size, size))
             image.setTemplate_(source["template"])
     if image is None and tool in MONOGRAMS:
-        image = _monogram_image(MONOGRAMS[tool])
-    _cache[tool] = image
+        image = _monogram_image(MONOGRAMS[tool], size)
+    _cache[(tool, size)] = image
     return image
 
 
-def _monogram_image(text):
+def _monogram_image(text, size=MENU_BAR_ICON_SIZE):
     """Letters in a rounded square, drawn as a template image so it follows
     the menu bar's colours."""
     from AppKit import (
@@ -125,16 +130,16 @@ def _monogram_image(text):
         NSString,
     )
 
-    size = MENU_BAR_ICON_SIZE
+    scale = size / MENU_BAR_ICON_SIZE  # drawn for 16 pt, scaled to `size`
     image = NSImage.alloc().initWithSize_((size, size))
     image.lockFocus()
     NSColor.blackColor().set()
     frame = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
-        NSMakeRect(1, 1, size - 2, size - 2), 3.5, 3.5
+        NSMakeRect(scale, scale, size - 2 * scale, size - 2 * scale), 3.5 * scale, 3.5 * scale
     )
-    frame.setLineWidth_(1.3)
+    frame.setLineWidth_(1.3 * scale)
     frame.stroke()
-    font = NSFont.systemFontOfSize_weight_(10 if len(text) == 1 else 7.5, 0.4)
+    font = NSFont.systemFontOfSize_weight_((10 if len(text) == 1 else 7.5) * scale, 0.4)
     attrs = {NSFontAttributeName: font, NSForegroundColorAttributeName: NSColor.blackColor()}
     label = NSString.stringWithString_(text)
     width, height = label.sizeWithAttributes_(attrs)

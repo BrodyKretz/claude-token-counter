@@ -69,3 +69,12 @@ def test_providers_without_an_app_get_a_monogram():
     from tool_icons import MONOGRAMS
     assert MONOGRAMS == {"openai": "AI", "deepseek": "DS", "kimi": "K"}
     assert icon_source("deepseek", apps({}), [], app_dirs=[]) is None
+
+
+def test_icon_image_comes_in_the_requested_size():
+    from tool_icons import icon_image
+
+    image = icon_image("deepseek", 28)  # no DeepSeek app here: its monogram
+
+    assert tuple(image.size()) == (28, 28)
+    assert image.isTemplate()

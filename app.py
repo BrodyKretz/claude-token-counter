@@ -50,7 +50,7 @@ from token_math import (
     save_state,
     sum_usage_for_today,
 )
-from tool_icons import menu_bar_image
+from tool_icons import icon_image, menu_bar_image
 from providers import PROVIDER_NAMES, PROVIDERS, provider_view, tools_to_scan
 from tools import TOOLS, combined_view, detect_tools, scan_tools, tool_view
 from usage_stats import total_in_range
@@ -59,6 +59,7 @@ from version import APP_NAME, REPO_URL
 STATE_FILE = Path(__file__).resolve().parent / "state.json"
 LOCK_FILE = Path(__file__).resolve().parent / ".claude-tracker.lock"
 REFRESH_SECONDS = 15
+HEADER_ICON_SIZE = 28
 SCAN_INTERVAL_CHOICES = [5, 15, 30, 60, 300]
 LABEL = "com.claudetokencounter.menubar"
 
@@ -237,6 +238,8 @@ class TokenCounterApp(rumps.App):
             welcome=None if self.state["onboarding_done"]
             else welcome_tab(detected, self.welcome_choice),
             subtitle="All AI tools" if view["key"] == "all" else f"for {view['name']}",
+            # Same rule as the menu bar: the AI's logo, the coin when combined.
+            logo=icon_image(view["key"], HEADER_ICON_SIZE) if view["key"] != "all" else None,
         )
         self.settings_window.render(
             settings_tab(self.state, self.paused, SCAN_INTERVAL_CHOICES, detected)

@@ -374,11 +374,13 @@ class Panel:
     # -- rendering
 
     def render(self, tabs, footer, paused, tool_choices=None, selected_tool=None,
-               welcome=None, subtitle="for Claude Code"):
+               welcome=None, subtitle="for Claude Code", logo=None):
         """`tool_choices` [(key, name)] adds a tool switcher when there are 2+;
-        `welcome` (a tab) replaces everything with the first-run picker.
+        `welcome` (a tab) replaces everything with the first-run picker;
+        `logo` (an NSImage) replaces the header's coin.
         Settings live in their own window (SettingsWindow)."""
         self.tabs = tabs
+        self.logo = logo
         self.footer = footer
         self.paused = paused
         self.tool_choices = tool_choices or []
@@ -440,7 +442,15 @@ class Panel:
         self._set_height(y + PAD)
 
     def _draw_header(self, y, inner):
-        self.root.addSubview_(_label("🪙", NSMakeRect(PAD, y + 2, 28, 28), size=22))
+        logo = getattr(self, "logo", None)
+        if logo is not None:
+            # The selected AI's logo; template images follow the text colour.
+            view = NSImageView.imageViewWithImage_(logo)
+            view.setContentTintColor_(NSColor.labelColor())
+            view.setFrame_(NSMakeRect(PAD, y + 2, 28, 28))
+            self.root.addSubview_(view)
+        else:
+            self.root.addSubview_(_label("🪙", NSMakeRect(PAD, y + 2, 28, 28), size=22))
         self.root.addSubview_(
             _label(APP_NAME, NSMakeRect(PAD + 34, y, 200, 18),
                    size=14, weight=NSFontWeightSemibold)

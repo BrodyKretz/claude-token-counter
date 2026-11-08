@@ -77,3 +77,29 @@ def test_settings_window_draws_the_settings_cards():
     switch = next(v for v in window.root.subviews() if isinstance(v, NSSwitch))
     window._fire(switch.tag(), False)
     assert calls == [("tool:codex", False)]
+
+
+def test_header_shows_the_selected_ais_logo_instead_of_the_coin():
+    from AppKit import NSImage, NSImageView, NSTextField
+
+    from panel_view import Panel
+
+    logo = NSImage.alloc().initWithSize_((16, 16))
+    panel = Panel(on_action=lambda action, value: None)
+    panel.render([TAB], "footer", False, logo=logo)
+
+    images = [v.image() for v in panel.root.subviews() if isinstance(v, NSImageView)]
+    labels = [v.stringValue() for v in panel.root.subviews() if isinstance(v, NSTextField)]
+    assert logo in images
+    assert "🪙" not in labels
+
+
+def test_header_keeps_the_coin_without_a_logo():
+    from AppKit import NSTextField
+
+    from panel_view import Panel
+
+    panel = Panel(on_action=lambda action, value: None)
+    panel.render([TAB], "footer", False)
+
+    assert "🪙" in [v.stringValue() for v in panel.root.subviews() if isinstance(v, NSTextField)]
