@@ -39,3 +39,16 @@ def test_estimate_cost_reports_unpriced_tokens():
 def test_format_dollars():
     assert format_dollars(3.456) == "$3.46"
     assert format_dollars(12345.6) == "$12,346"
+
+
+def test_estimate_cost_uses_recorded_cost():
+    models = {
+        "gemini-4-argon": {"input": 1_000_000},
+        "mystery": {"input": 5},
+        "claude-opus-5-5": {"input": 1_000_000},
+    }
+
+    dollars, unpriced = estimate_cost(models, recorded={"gemini-4-argon": 0.75})
+
+    assert dollars == pytest.approx(4.75)
+    assert unpriced == 5

@@ -40,15 +40,21 @@ def price_for(model):
     return PRICES[max(matches, key=len)]
 
 
-def estimate_cost(models):
+def estimate_cost(models, recorded=None):
     """Estimate USD for {model: {category: tokens}}.
 
+    `recorded` is {model: dollars} a tool recorded itself (opencode does);
+    those models use that amount instead of the price table.
     Returns (dollars, unpriced_tokens): tokens from models with no known
     price are left out of the dollar figure and counted separately.
     """
+    recorded = recorded or {}
     dollars = 0.0
     unpriced = 0
     for model, parts in models.items():
+        if model in recorded:
+            dollars += recorded[model]
+            continue
         price = price_for(model)
         if price is None:
             unpriced += sum(parts.values())
