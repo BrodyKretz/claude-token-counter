@@ -10,7 +10,12 @@ Yes. There's no compiled binary and nothing hidden -- it's a handful of short Py
 
 By default it never connects to the internet or sends your data anywhere. The only things it touches are:
 
-- Log files already on your own Mac (`~/.claude/projects/`, which Claude Code itself writes)
+- Usage data your AI coding tools already keep on your own Mac, only for the tools you turn on:
+  - **Claude Code:** its logs in `~/.claude/projects/`
+  - **Codex:** its session logs in `~/.codex/sessions/`
+  - **opencode:** its database at `~/.local/share/opencode/opencode.db`, opened read-only
+
+  From these it reads only token counts, which model was used, when, and which project folder. It skips your prompts, code and replies, and never touches opencode's account or credential tables.
 - `launchctl`, macOS's own built-in tool, only to turn its "start at login" setting on or off
 
 **The one exception is the Leaderboard (Beta) feature, and it's entirely opt-in** -- its tab is hidden until you turn on **Show Leaderboard (Beta)** in Settings, and nothing below happens unless you then click "Set Up Leaderboard" yourself. See the [Leaderboard (Beta)](#leaderboard-beta) section for exactly what that does.
@@ -33,6 +38,8 @@ If step 1 fails because `rumps` isn't installed, the script installs it for you 
 
 ## What you'll see when you click the icon
 
+The first time you open it, it asks which AI tools you use (Claude Code, Codex, opencode -- only the ones found on your Mac are listed) and tracks only those. If you track more than one, a switcher at the top picks which tool you're looking at; turn on **Combine all tools** in Settings to see every tool's usage together, grouped by model.
+
 A panel opens with a row of tabs along the top. Click an icon to switch tabs:
 
 - **Overview** -- today's and lifetime totals, a chart of the last 14 days, and yesterday / last 7 days / this month / your biggest day
@@ -43,7 +50,7 @@ A panel opens with a row of tabs along the top. Click an icon to switch tabs:
 - **Active Sessions** -- every Claude Code terminal you currently have open, and how many tokens each one has used
 - **Leaderboard (Beta)** -- hidden unless you turn it on in Settings; see below, this one's still a work in progress
 
-At the bottom: the date you started tracking, a **Settings** button (what the menu bar shows -- lifetime total, today's total, or just the icon -- and its text size; how often to scan; pause scanning; start at login; show the Leaderboard; version and credits) and **Quit**. Click anywhere outside the panel to close it.
+At the bottom: the date you started tracking, a **Settings** button (which AI tools to track and whether to combine them; what the menu bar shows -- lifetime total, today's total, or just the icon -- and its text size; how often to scan; pause scanning; start at login; show the Leaderboard; version and credits) and **Quit**. Click anywhere outside the panel to close it.
 
 ### Leaderboard (Beta)
 
@@ -73,6 +80,7 @@ This removes it from starting at login and deletes **Claude Tracker** from your 
 ## How it works
 
 - Claude Code already writes a log of every message you send and receive to `~/.claude/projects/**/*.jsonl` on your own machine.
+- Codex and opencode count tokens a bit differently (for example, Codex includes cached tokens in its input number). The app converts each into the same four types -- new input, output, cache write, cache read -- so the tools add up and compare consistently. Each tool's Overview also shows **new input + output**, which compares tools fairly since cache reads can dominate a total.
 - This app reads those logs and adds up the tokens (input + output + cache) used in every message.
 - It also files each message into a per-day bucket (by model, token type and project), which powers the breakdown, history and cost menus. The first time you run a version with these menus, it fills the buckets from the logs still on disk; anything Claude Code already pruned shows up as "older, no detail".
 - It remembers exactly how far into each log file it has already counted, so re-checking every 15 seconds only adds *new* tokens, never double-counts, and the total keeps climbing correctly even after Claude Code deletes old logs (it prunes anything older than ~30 days).
@@ -92,6 +100,9 @@ Current version: **2.1.0**, following [Semantic Versioning](https://semver.org) 
 app.py                       menu bar app (rumps): scanning, settings, leaderboard actions
 token_math.py                reads the jsonl logs and does the token accounting
 usage_stats.py               per-day buckets and the breakdown / model / project / history views
+codex_source.py              reads Codex usage from its session logs
+opencode_source.py           reads opencode usage from its database (read-only)
+tools.py                     the supported tools, detection, scanning, per-tool and combined views
 stats_tabs.py                what each panel tab shows, as plain data
 panel_view.py                draws the panel (tabs, cards, bars, chart, settings) with AppKit
 pricing.py                   API price table and the estimated-cost math

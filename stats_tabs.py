@@ -365,7 +365,8 @@ def _tools_card(state, detected):
 def welcome_tab(detected, chosen):
     """First-run picker: which AI tools to track."""
     if detected:
-        items = [("note", "Which AI tools do you use? You can change this in Settings.")]
+        items = [("note", "Which AI tools do you use?"),
+                 ("note", "You can change this later in Settings.")]
         items += [("switch", TOOL_NAMES[key], key in chosen, f"welcome_tool:{key}") for key in detected]
     else:
         items = [("note", "No supported AI tools found on this Mac yet.")]
