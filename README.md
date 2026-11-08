@@ -67,7 +67,7 @@ Turn on OpenAI, DeepSeek or Kimi under **AI tools** in Settings (listed after yo
 | Kimi | ordinary API key | balance |
 | DeepSeek | API key | balance (DeepSeek has no usage-history API) |
 
-These account numbers are shown in their own card and never added to the local totals, since the two overlap. Numbers refresh every 15 minutes; if a refresh fails, the last good numbers stay with the error shown under them.
+If an AI's usage can't be seen -- none of your tools have used its models yet, a key only gives a balance, a key is rejected, or its data can't be read or reached -- an orange warning saying why sits at the top of every tab when you pick it from the dropdown. These account numbers are shown in their own card and never added to the local totals, since the two overlap. Numbers refresh every 15 minutes; if a refresh fails, the last good numbers stay with the error shown under them.
 
 **How keys are kept private:** a key is stored only in your **macOS Keychain**, written through `security -i` on standard input so it never appears in a process list. It's never written to `state.json`, any log or this repo. It's sent only over HTTPS, only to that provider's own API (`api.openai.com`, `api.deepseek.com`, or `api.moonshot.ai` / `api.moonshot.cn`), and redirects aren't followed. **Remove Key** deletes it from the Keychain. Only usage numbers and balances are requested.
 

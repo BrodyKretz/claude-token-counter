@@ -301,3 +301,12 @@ def test_timeout_is_reported_not_raised():
 
     assert fetch_account("deepseek", "sk-1234567890", get=api)["error"] == \
         "couldn't reach DeepSeek (timed out)"
+
+
+def test_has_usage_marks_keys_that_return_token_usage():
+    openai = fetch_account("openai", "sk-admin-1234567890", today=TODAY, get=FakeApi(openai_routes()))
+    deepseek = fetch_account("deepseek", "sk-1234567890", today=TODAY, get=FakeApi({
+        ("api.deepseek.com", "/user/balance"): {"is_available": True, "balance_infos": []}}))
+
+    assert openai["has_usage"] is True
+    assert deepseek["has_usage"] is False

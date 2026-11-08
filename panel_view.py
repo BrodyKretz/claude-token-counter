@@ -65,6 +65,7 @@ HEIGHTS = {
     "segmented": 30,
     "popup": 30,
     "switch": 30,
+    "alert": 17,
 }
 CARD_TITLE_HEIGHT = 24
 SCREEN_MARGIN = 40  # keep the panel this far from the bottom of the screen
@@ -584,6 +585,19 @@ class Panel:
         self.root.addSubview_(
             _label(value, NSMakeRect(x + width - 110, y + 2, 110, 18), align="right",
                    weight=NSFontWeightSemibold)
+        )
+
+    def _draw_alert(self, item, x, y, width):
+        """One line of a warning, in orange; the first line gets an icon."""
+        _, text, show_icon = item
+        if show_icon:
+            icon = NSImageView.imageViewWithImage_(_symbol("exclamationmark.triangle.fill", 12))
+            icon.setContentTintColor_(NSColor.systemOrangeColor())
+            icon.setFrame_(NSMakeRect(x, y + 1, 16, 15))
+            self.root.addSubview_(icon)
+        self.root.addSubview_(
+            _label(text, NSMakeRect(x + 22, y, width - 22, 16), size=12,
+                   weight=NSFontWeightSemibold, color=NSColor.systemOrangeColor())
         )
 
     def _draw_note(self, item, x, y, width):

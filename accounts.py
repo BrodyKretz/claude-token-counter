@@ -159,7 +159,8 @@ def _pages(get, key, base, params, cursor_param, next_field):
 
 
 def _empty_result():
-    return {"daily": {}, "cost": {}, "rows": [], "notes": [], "error": None}
+    # has_usage: whether this key's API reports token usage (not just a balance)
+    return {"daily": {}, "cost": {}, "rows": [], "notes": [], "error": None, "has_usage": False}
 
 
 # --- providers ------------------------------------------------------------
@@ -170,6 +171,7 @@ def _fetch_openai(key, today, get):
         result["error"] = ("usage needs an admin key (sk-admin-…), from "
                            "platform.openai.com → Settings → Admin keys")
         return result
+    result["has_usage"] = True
     start = int(_window_start(today).timestamp())
     usage = _pages(get, key, "https://api.openai.com/v1/organization/usage/completions",
                    {"start_time": start, "bucket_width": "1d", "limit": 31, "group_by": "model"},
@@ -217,6 +219,7 @@ def _fetch_deepseek(key, today, get):
 def _fetch_kimi(key, today, get):
     result = _empty_result()
     if key.startswith("sk-admin-"):
+        result["has_usage"] = True
         base = "https://api.moonshot.ai/v1/admin/organizations"
         params = {"start": int(_window_start(today).timestamp() * 1000),
                   "end": int(time.time() * 1000), "granularity": "1d", "limit": 1000}

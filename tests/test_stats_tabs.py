@@ -26,7 +26,7 @@ def build_panel(state, sessions, friends, today=None, view=None, show_leaderboar
 
 ITEM_LENGTHS = {
     "tiles": 2, "chart": 3, "bar": 4, "row": 3, "note": 2, "buttons": 2,
-    "segmented": 5, "popup": 5, "switch": 4,
+    "segmented": 5, "popup": 5, "switch": 4, "alert": 3,
 }
 
 
@@ -47,6 +47,13 @@ def assert_well_formed(tab):
             assert len(item) == ITEM_LENGTHS[item[0]], item
             if item[0] == "bar":
                 assert 0.0 <= item[3] <= 1.0
+
+
+def alert_text(tab):
+    """The warning at the top of a tab, as one string, or None."""
+    first = tab["cards"][0]["items"] if tab["cards"] else []
+    lines = [item[1] for item in first if item[0] == "alert"]
+    return " ".join(lines) or None
 
 
 def items_of(tab):
@@ -172,7 +179,7 @@ def test_error_note_shown():
     tabs = {t["key"]: t for t in build_panel({}, [], [], today=date(2026, 7, 29),
                                              view=view_of({}, error="bad file"))}
 
-    assert tabs["overview"]["cards"][0]["items"][0] == ("note", "Codex data couldn't be read: bad file")
+    assert alert_text(tabs["overview"]) == "Codex data couldn't be read: bad file"
 
 
 def test_cost_uses_recorded_cost():
@@ -328,7 +335,8 @@ def test_provider_account_card_with_fetched_numbers():
     assert ("row", "Balance", "$3.00") in items
     notes = [i[1] for i in items if i[0] == "note"]
     assert "Hello" in notes
-    assert any("boom" in n for n in notes)
+    assert not any("boom" in n for n in notes)  # shown as the warning instead
+    assert alert_text(tabs[0]) == "Couldn't connect to OpenAI: boom"
     assert "Updated 9:05 AM" in notes
     assert items[-1] == ("buttons", [("Replace Key", "key", "provider_key:openai"),
                                      ("Remove Key", "trash", "provider_key_remove:openai")])
@@ -398,3 +406,61 @@ def test_tools_and_providers_share_one_card_with_combine_last():
     items = next(c for c in tab["cards"] if c["title"] == "AI tools")["items"]
     switches = [i[1] for i in items if i[0] == "switch"]
     assert switches == ["Claude Code", "Codex", "OpenAI", "DeepSeek", "Kimi", "Combine all tools"]
+
+
+# --- warnings when an AI's usage can't be seen ----------------------------
+
+def _empty_provider(key, name):
+    return {"key": key, "name": name, "daily": {}, "grand_total": 0, "error": None, "views": []}
+
+
+def test_provider_with_no_usage_warns_on_every_tab():
+    tabs = build_panel({}, [], [], today=date(2026, 11, 8), view=_empty_provider("kimi", "Kimi"))
+
+    for tab in tabs:
+        assert_well_formed(tab)
+        assert alert_text(tab).startswith("No Kimi usage found on this Mac."), tab["key"]
+    assert tabs[0]["cards"][0]["items"][0][2] is True  # icon on the first line only
+    assert "add an API key at the bottom of Home" in alert_text(tabs[0])
+
+
+def test_deepseek_without_usage_explains_a_key_wont_show_it():
+    tabs = build_panel({}, [], [], today=date(2026, 11, 8),
+                       view=_empty_provider("deepseek", "DeepSeek"))
+
+    assert "doesn't share usage history" in alert_text(tabs[0])
+
+
+def test_key_that_only_gives_a_balance_is_explained():
+    state = {"provider_keys": ["kimi"], "accounts": {"kimi": {
+        "daily": {}, "cost": {}, "rows": [["Balance", "$1.00"]], "notes": [], "error": None,
+        "has_usage": False, "fetched_at": "2026-11-08T09:00:00"}}}
+
+    tabs = build_panel(state, [], [], today=date(2026, 11, 8), view=_empty_provider("kimi", "Kimi"))
+
+    assert "only shows your balance" in alert_text(tabs[0])
+
+
+def test_account_connection_error_is_a_warning():
+    state = {"provider_keys": ["openai"], "accounts": {"openai": {
+        "daily": {}, "cost": {}, "rows": [], "notes": [], "error": "the API key was rejected (HTTP 401)",
+        "fetched_at": None, "attempted_at": "2026-11-08T09:00:00"}}}
+
+    tabs = build_panel(state, [], [], today=date(2026, 11, 8), view=_provider_view())
+
+    assert alert_text(tabs[0]) == "Couldn't connect to OpenAI: the API key was rejected (HTTP 401)"
+    assert alert_text(tabs[2]) == alert_text(tabs[0])
+
+
+def test_no_warning_when_usage_is_visible():
+    tabs = build_panel({}, [], [], today=date(2026, 11, 8), view=_provider_view())
+
+    assert all(alert_text(t) is None for t in tabs)
+
+
+def test_no_warning_while_waiting_for_first_fetch():
+    state = {"provider_keys": ["kimi"], "accounts": {}}
+
+    tabs = build_panel(state, [], [], today=date(2026, 11, 8), view=_empty_provider("kimi", "Kimi"))
+
+    assert alert_text(tabs[0]) is None

@@ -57,9 +57,17 @@ DEFAULT_MENU_BAR_FONT_SIZE = 12
 NOTE_WIDTH = 46  # characters that fit on one note line
 
 
+ALERT_WIDTH = 40  # characters per warning line (it's indented for its icon)
+
+
 def note_lines(text):
     """A note too long for one line, as several note items."""
     return [("note", line) for line in textwrap.wrap(text, NOTE_WIDTH)]
+
+
+def alert_lines(text):
+    """A warning as ("alert", line, show_icon) items; the icon is on line one."""
+    return [("alert", line, i == 0) for i, line in enumerate(textwrap.wrap(text, ALERT_WIDTH))]
 
 
 def _ordinal_suffix(day):
@@ -158,17 +166,12 @@ def _overview_tab(d):
     history_items.append(
         ("row", "New input + output", format_count(lifetime["input"] + lifetime["output"]))
     )
-    error_cards = []
-    if d.view["error"]:
-        error_cards = [{"title": None, "items": [
-            ("note", f"{d.view['name']} data couldn't be read: {d.view['error']}")
-        ]}]
     return {
         "key": "overview",
         "title": "Overview",
         "short": "Home",
         "icon": "square.grid.2x2",
-        "cards": error_cards + [
+        "cards": [
             {
                 "title": None,
                 "items": [
@@ -226,13 +229,38 @@ def _account_cards(d):
     items += [("row", label, value) for label, value in saved.get("rows", [])]
     for note in saved.get("notes", []):
         items += note_lines(note)
-    if saved.get("error"):
-        items += note_lines(f"Couldn't update: {saved['error']}")
     if saved.get("fetched_at"):
         fetched = datetime.fromisoformat(saved["fetched_at"])
         items.append(("note", f"Updated {fetched.strftime('%-I:%M %p')}"))
     items.append(key_buttons)
     return [{"title": title, "items": items}]
+
+
+def _warning(d):
+    """Why this AI's usage can't be seen, or None. Shown at the top of every
+    tab of its view."""
+    view, name, key = d.view, d.view["name"], d.view["key"]
+    if view["error"]:
+        return f"{name} data couldn't be read: {view['error']}"
+    if key not in PROVIDER_NAMES:
+        return None
+    has_key = key in d.state.get("provider_keys", [])
+    saved = d.state.get("accounts", {}).get(key)
+    if has_key and saved and saved.get("error"):
+        return f"Couldn't connect to {name}: {saved['error']}"
+    if d.grand_total:
+        return None
+    if has_key:
+        if not saved or saved.get("has_usage"):
+            return None  # still fetching, or the account's usage is shown
+        extra = (" An admin key (sk-admin-…) also shows usage." if key == "kimi"
+                 else f" {name} doesn't share usage history.")
+        return f"No {name} usage found on this Mac, and your {name} key only shows your balance.{extra}"
+    found = f"No {name} usage found on this Mac. None of your tools have used {name} models yet."
+    if key == "deepseek":
+        return (found + " DeepSeek doesn't share usage history online, so an API key "
+                "would only show your balance.")
+    return found + " For usage from other computers or the website, add an API key at the bottom of Home."
 
 
 def _account_invite(d):
@@ -568,6 +596,10 @@ def build_panel(view, state, sessions, friends, show_leaderboard, today=None):
     # have no Live tab.
     if view["key"] not in PROVIDER_NAMES:
         tabs.append(_sessions_tab(view, sessions))
+    warning = _warning(d)
+    if warning:
+        for tab in tabs:
+            tab["cards"].insert(0, {"title": None, "items": alert_lines(warning)})
     if show_leaderboard:
         tabs.append(_leaderboard_tab(state, friends))
     return tabs
