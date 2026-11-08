@@ -62,18 +62,66 @@ def record_entry(daily, entry):
     if not usage or not timestamp:
         return
     parts = split_usage(usage)
-    tokens = sum(parts.values())
-    if tokens == 0:
+    if sum(parts.values()) == 0:
         return
-    day = daily.setdefault(
-        _local_date_of(timestamp).isoformat(), {"models": {}, "projects": {}}
+    add_usage(
+        daily,
+        _local_date_of(timestamp),
+        entry.get("message", {}).get("model") or "unknown",
+        project_label(entry.get("cwd")),
+        parts,
     )
-    model = entry.get("message", {}).get("model") or "unknown"
-    bucket = day["models"].setdefault(model, {c: 0 for c in CATEGORIES})
+
+
+def add_usage(daily, day, model, project, parts, cost=None):
+    """Add one response's token `parts` ({category: tokens}) to the buckets
+    for `day`. `cost` is a dollar amount the tool itself recorded, if any."""
+    bucket = daily.setdefault(day.isoformat(), {"models": {}, "projects": {}})
+    model_parts = bucket["models"].setdefault(model, {c: 0 for c in CATEGORIES})
     for category, count in parts.items():
-        bucket[category] = bucket.get(category, 0) + count
-    project = project_label(entry.get("cwd"))
-    day["projects"][project] = day["projects"].get(project, 0) + tokens
+        model_parts[category] = model_parts.get(category, 0) + count
+    bucket["projects"][project] = bucket["projects"].get(project, 0) + sum(parts.values())
+    if cost is not None:
+        costs = bucket.setdefault("recorded_cost", {})
+        costs[model] = costs.get(model, 0.0) + cost
+
+
+def _combine_buckets(dailies, combine):
+    """Merge per-day buckets with `combine(a, b)` for each number."""
+    merged = {}
+    for daily in dailies:
+        for iso, bucket in daily.items():
+            into = merged.setdefault(iso, {"models": {}, "projects": {}})
+            for model, parts in bucket.get("models", {}).items():
+                into_parts = into["models"].setdefault(model, {c: 0 for c in CATEGORIES})
+                for category, count in parts.items():
+                    into_parts[category] = combine(into_parts.get(category, 0), count)
+            for project, tokens in bucket.get("projects", {}).items():
+                into["projects"][project] = combine(into["projects"].get(project, 0), tokens)
+            for model, dollars in bucket.get("recorded_cost", {}).items():
+                costs = into.setdefault("recorded_cost", {})
+                costs[model] = combine(costs.get(model, 0.0), dollars)
+    return merged
+
+
+def merge_daily(dailies):
+    """Sum several tools' per-day buckets into new buckets."""
+    return _combine_buckets(dailies, lambda a, b: a + b)
+
+
+def merge_max_daily(saved, current):
+    """Merge a fresh read into saved buckets, keeping the larger number
+    everywhere, so data a tool later deletes never shrinks history."""
+    return _combine_buckets([saved, current], max)
+
+
+def recorded_cost_in_range(daily, start, end):
+    """{model: dollars} the tools themselves recorded for [start, end]."""
+    totals = {}
+    for bucket in _days_in_range(daily, start, end):
+        for model, dollars in bucket.get("recorded_cost", {}).items():
+            totals[model] = totals.get(model, 0.0) + dollars
+    return totals
 
 
 def _days_in_range(daily, start, end):
