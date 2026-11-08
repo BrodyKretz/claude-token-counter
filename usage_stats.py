@@ -5,6 +5,8 @@ state["daily"] maps an ISO date to:
     {
         "models": {model_id: {category: tokens, ...}, ...},
         "projects": {project_label: tokens, ...},
+        "model_projects": {model_id: {project_label: tokens}},  # newer buckets
+        "recorded_cost": {model_id: dollars},  # when a tool records cost
     }
 where category is one of CATEGORIES. Everything the menu shows (today,
 by model, by project, history, cost) is derived from these buckets.
@@ -80,7 +82,10 @@ def add_usage(daily, day, model, project, parts, cost=None):
     model_parts = bucket["models"].setdefault(model, {c: 0 for c in CATEGORIES})
     for category, count in parts.items():
         model_parts[category] = model_parts.get(category, 0) + count
-    bucket["projects"][project] = bucket["projects"].get(project, 0) + sum(parts.values())
+    tokens = sum(parts.values())
+    bucket["projects"][project] = bucket["projects"].get(project, 0) + tokens
+    per_model = bucket.setdefault("model_projects", {}).setdefault(model, {})
+    per_model[project] = per_model.get(project, 0) + tokens
     if cost is not None:
         costs = bucket.setdefault("recorded_cost", {})
         costs[model] = costs.get(model, 0.0) + cost
@@ -101,7 +106,40 @@ def _combine_buckets(dailies, combine):
             for model, dollars in bucket.get("recorded_cost", {}).items():
                 costs = into.setdefault("recorded_cost", {})
                 costs[model] = combine(costs.get(model, 0.0), dollars)
+            for model, projects in bucket.get("model_projects", {}).items():
+                into_projects = into.setdefault("model_projects", {}).setdefault(model, {})
+                for project, tokens in projects.items():
+                    into_projects[project] = combine(into_projects.get(project, 0), tokens)
     return merged
+
+
+def filter_daily(daily, keep_model):
+    """New buckets holding only the models `keep_model(model)` accepts.
+
+    Projects come from the per-model record. Older buckets don't have one:
+    their projects are kept only when every model in the bucket is kept, and
+    left out otherwise rather than guessed.
+    """
+    filtered = {}
+    for iso, bucket in daily.items():
+        models = {m: dict(p) for m, p in bucket.get("models", {}).items() if keep_model(m)}
+        if not models:
+            continue
+        out = {"models": models, "projects": {}}
+        if "model_projects" in bucket:
+            out["model_projects"] = {}
+            for model in models:
+                projects = bucket["model_projects"].get(model, {})
+                out["model_projects"][model] = dict(projects)
+                for project, tokens in projects.items():
+                    out["projects"][project] = out["projects"].get(project, 0) + tokens
+        elif len(models) == len(bucket.get("models", {})):
+            out["projects"] = dict(bucket.get("projects", {}))
+        costs = {m: c for m, c in bucket.get("recorded_cost", {}).items() if m in models}
+        if costs:
+            out["recorded_cost"] = costs
+        filtered[iso] = out
+    return filtered
 
 
 def merge_daily(dailies):

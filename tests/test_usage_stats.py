@@ -186,3 +186,61 @@ def test_recorded_cost_in_range():
     add_usage(daily, date(2026, 7, 1), "m", "~/p", _parts(input=1), cost=9.0)
 
     assert recorded_cost_in_range(daily, date(2026, 7, 28), date(2026, 7, 29)) == {"m": 2.0}
+
+
+def test_add_usage_records_projects_per_model():
+    from usage_stats import add_usage
+    daily = {}
+    add_usage(daily, date(2026, 11, 8), "gpt-5", "~/a", {"input": 3, "output": 2})
+    add_usage(daily, date(2026, 11, 8), "claude-opus-5-5", "~/a", {"input": 1})
+    add_usage(daily, date(2026, 11, 8), "gpt-5", "~/b", {"input": 4})
+
+    assert daily["2026-11-08"]["model_projects"] == {
+        "gpt-5": {"~/a": 5, "~/b": 4},
+        "claude-opus-5-5": {"~/a": 1},
+    }
+
+
+def test_merge_daily_sums_model_projects():
+    from usage_stats import add_usage, merge_daily
+    a, b = {}, {}
+    add_usage(a, date(2026, 11, 8), "gpt-5", "~/a", {"input": 3})
+    add_usage(b, date(2026, 11, 8), "gpt-5", "~/a", {"input": 4})
+
+    assert merge_daily([a, b])["2026-11-08"]["model_projects"] == {"gpt-5": {"~/a": 7}}
+
+
+def test_filter_daily_keeps_only_matching_models_and_their_projects():
+    from usage_stats import add_usage, filter_daily
+    daily = {}
+    add_usage(daily, date(2026, 11, 8), "gpt-5", "~/a", {"input": 3}, cost=0.5)
+    add_usage(daily, date(2026, 11, 8), "claude-opus-5-5", "~/b", {"input": 9}, cost=2.0)
+
+    kept = filter_daily(daily, lambda m: m.startswith("gpt"))
+
+    bucket = kept["2026-11-08"]
+    assert list(bucket["models"]) == ["gpt-5"]
+    assert bucket["projects"] == {"~/a": 3}
+    assert bucket["recorded_cost"] == {"gpt-5": 0.5}
+
+
+def test_filter_daily_old_bucket_without_model_projects():
+    from usage_stats import filter_daily
+    parts = {"input": 5, "output": 0, "cache_write_5m": 0, "cache_write_1h": 0, "cache_read": 0}
+    only_gpt = {"2026-11-01": {"models": {"gpt-5": parts}, "projects": {"~/a": 5}}}
+    mixed = {"2026-11-01": {"models": {"gpt-5": parts, "claude-opus-5-5": parts},
+                            "projects": {"~/a": 10}}}
+
+    keep = lambda m: m.startswith("gpt")
+    assert filter_daily(only_gpt, keep)["2026-11-01"]["projects"] == {"~/a": 5}
+    # Can't tell which project the gpt tokens came from: leave projects out.
+    assert filter_daily(mixed, keep)["2026-11-01"]["projects"] == {}
+    assert filter_daily(mixed, keep)["2026-11-01"]["models"] == {"gpt-5": parts}
+
+
+def test_filter_daily_drops_days_with_no_matching_models():
+    from usage_stats import add_usage, filter_daily
+    daily = {}
+    add_usage(daily, date(2026, 11, 8), "claude-opus-5-5", "~/b", {"input": 9})
+
+    assert filter_daily(daily, lambda m: m.startswith("gpt")) == {}
