@@ -122,3 +122,67 @@ def test_daily_series_fills_missing_days_with_zero():
     record_entry(daily, entry(ts="2026-07-28T12:00:00.000Z", input_tokens=4))
     series = daily_series(daily, date(2026, 7, 29), 3)
     assert series == [(date(2026, 7, 27), 0), (date(2026, 7, 28), 4), (date(2026, 7, 29), 0)]
+
+
+def _parts(**kw):
+    base = {"input": 0, "output": 0, "cache_write_5m": 0, "cache_write_1h": 0, "cache_read": 0}
+    base.update(kw)
+    return base
+
+
+def test_add_usage_creates_and_sums_buckets():
+    from usage_stats import add_usage
+
+    daily = {}
+    add_usage(daily, date(2026, 7, 29), "gpt-x", "~/a", _parts(input=3, output=2))
+    add_usage(daily, date(2026, 7, 29), "gpt-x", "~/a", _parts(cache_read=5), cost=0.25)
+
+    day = daily["2026-07-29"]
+    assert day["models"]["gpt-x"] == _parts(input=3, output=2, cache_read=5)
+    assert day["projects"] == {"~/a": 10}
+    assert day["recorded_cost"] == {"gpt-x": 0.25}
+
+
+def test_merge_daily_sums_across_tools():
+    from usage_stats import add_usage, merge_daily
+
+    a, b = {}, {}
+    add_usage(a, date(2026, 7, 29), "claude-opus-5-5", "~/p", _parts(input=1))
+    add_usage(b, date(2026, 7, 29), "claude-opus-5-5", "~/p", _parts(input=2), cost=1.0)
+    add_usage(b, date(2026, 7, 28), "gpt-x", "~/q", _parts(output=4))
+
+    merged = merge_daily([a, b])
+
+    assert merged["2026-07-29"]["models"]["claude-opus-5-5"]["input"] == 3
+    assert merged["2026-07-29"]["projects"]["~/p"] == 3
+    assert merged["2026-07-29"]["recorded_cost"] == {"claude-opus-5-5": 1.0}
+    assert merged["2026-07-28"]["models"]["gpt-x"]["output"] == 4
+    assert a["2026-07-29"]["models"]["claude-opus-5-5"]["input"] == 1  # inputs untouched
+
+
+def test_merge_max_daily_never_shrinks():
+    from usage_stats import add_usage, merge_max_daily
+
+    saved, current = {}, {}
+    add_usage(saved, date(2026, 7, 29), "m", "~/p", _parts(input=10), cost=2.0)
+    add_usage(current, date(2026, 7, 29), "m", "~/p", _parts(input=4, output=7), cost=1.0)
+    add_usage(current, date(2026, 7, 30), "m", "~/p", _parts(input=1))
+
+    merged = merge_max_daily(saved, current)
+
+    assert merged["2026-07-29"]["models"]["m"]["input"] == 10
+    assert merged["2026-07-29"]["models"]["m"]["output"] == 7
+    assert merged["2026-07-29"]["projects"]["~/p"] == 11
+    assert merged["2026-07-29"]["recorded_cost"]["m"] == 2.0
+    assert merged["2026-07-30"]["models"]["m"]["input"] == 1
+
+
+def test_recorded_cost_in_range():
+    from usage_stats import add_usage, recorded_cost_in_range
+
+    daily = {}
+    add_usage(daily, date(2026, 7, 28), "m", "~/p", _parts(input=1), cost=1.5)
+    add_usage(daily, date(2026, 7, 29), "m", "~/p", _parts(input=1), cost=0.5)
+    add_usage(daily, date(2026, 7, 1), "m", "~/p", _parts(input=1), cost=9.0)
+
+    assert recorded_cost_in_range(daily, date(2026, 7, 28), date(2026, 7, 29)) == {"m": 2.0}

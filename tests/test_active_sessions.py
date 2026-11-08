@@ -124,3 +124,30 @@ def test_claude_pids_matches_full_executable_paths():
 def test_project_dir_for_cwd_escapes_spaces_and_dots(tmp_path):
     result = active_sessions.project_dir_for_cwd("/Users/me/FPS Game 10.23", projects_dir=tmp_path)
     assert result == tmp_path / "-Users-me-FPS-Game-10-23"
+
+
+def test_pids_named_matches_full_paths():
+    ps_output = """  PID COMM
+  201 /Users/me/.vscode/extensions/openai.chatgpt/bin/macos-aarch64/codex
+  202 /opt/homebrew/Cellar/opencode/2.2.5/bin/opencode
+  203 codex
+  204 /usr/bin/codexx
+"""
+    assert active_sessions.pids_named(ps_output, "codex") == ["201", "203"]
+    assert active_sessions.pids_named(ps_output, "opencode") == ["202"]
+
+
+def test_running_tool_sessions_labels_folders_without_tokens(monkeypatch):
+    monkeypatch.setattr(active_sessions, "running_cwds", lambda name: ["/Users/me/game", "/opt/x"])
+
+    rows = active_sessions.running_tool_sessions("codex", home="/Users/me")
+
+    assert rows == [{"label": "~/game", "tokens": None}, {"label": "/opt/x", "tokens": None}]
+
+
+def test_running_tool_sessions_skips_background_helpers_in_root(monkeypatch):
+    monkeypatch.setattr(active_sessions, "running_cwds", lambda name: ["/", "/Users/me/game"])
+
+    assert active_sessions.running_tool_sessions("codex", home="/Users/me") == [
+        {"label": "~/game", "tokens": None},
+    ]

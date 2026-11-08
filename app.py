@@ -15,7 +15,7 @@ from AppKit import (
     NSFontAttributeName,
 )
 
-from active_sessions import active_sessions
+from active_sessions import active_sessions, running_tool_sessions
 from gist_sync import (
     NEW_TOKEN_URL,
     create_gist,
@@ -36,15 +36,17 @@ from stats_tabs import (
     format_long_date,
     leaderboard_enabled,
     settings_tab,
+    tool_choices,
+    welcome_tab,
 )
 from token_math import (
     backfill_daily,
     format_count,
     load_state,
-    refresh_grand_total,
     save_state,
     sum_usage_for_today,
 )
+from tools import TOOLS, combined_view, detect_tools, scan_tools, tool_view
 from usage_stats import total_in_range
 from version import APP_NAME, REPO_URL
 
@@ -53,6 +55,18 @@ LOCK_FILE = Path(__file__).resolve().parent / ".claude-tracker.lock"
 REFRESH_SECONDS = 15
 SCAN_INTERVAL_CHOICES = [5, 15, 30, 60, 300]
 LABEL = "com.claudetokencounter.menubar"
+
+
+def init_tool_state(state, fresh_install):
+    """Add the multi-tool settings to `state` without touching anything
+    already there. Existing installs keep tracking just Claude Code and skip
+    the welcome picker; fresh installs track nothing until a tool is chosen."""
+    state.setdefault("enabled_tools", [] if fresh_install else ["claude_code"])
+    state.setdefault("combine_tools", False)
+    state.setdefault(
+        "selected_tool", state["enabled_tools"][0] if state["enabled_tools"] else "claude_code"
+    )
+    state.setdefault("onboarding_done", not fresh_install)
 
 
 def _service_target():
@@ -77,7 +91,10 @@ def set_start_at_login(enabled):
 class TokenCounterApp(rumps.App):
     def __init__(self):
         super().__init__(APP_NAME, quit_button=None)
+        fresh_install = not STATE_FILE.exists()
         self.state = load_state(STATE_FILE)
+        init_tool_state(self.state, fresh_install)
+        self.welcome_choice = []
         self.state.setdefault("first_seen_at", None)
         self.state.setdefault("start_at_login", True)
         self.state.setdefault("scan_interval_seconds", REFRESH_SECONDS)
@@ -94,7 +111,7 @@ class TokenCounterApp(rumps.App):
         # Backfill must run before the first refresh: it re-reads each file
         # only up to the offsets saved by the previous run.
         backfill_daily(self.state)
-        refresh_grand_total(self.state)
+        scan_tools(self.state, self.state["enabled_tools"])
         save_state(self.state, STATE_FILE)
 
         self.paused = False
@@ -117,19 +134,38 @@ class TokenCounterApp(rumps.App):
         # Opening the app again (e.g. from Finder) asks this copy to show its panel.
         self._show_observer = observe_show_requests(self.panel.show)
         self._update_title()
+        if not self.state["onboarding_done"]:
+            self.panel.show()  # first run: ask which tools to track
 
-    def _today_tokens(self):
-        today = date.today()
-        return total_in_range(self.state["daily"], today, today)
+    def _current_view(self, detected=None):
+        """The view the panel and menu bar show: the selected tool, or every
+        enabled tool combined."""
+        enabled = self.state["enabled_tools"]
+        if self.state["combine_tools"]:
+            return combined_view(self.state, enabled)
+        choices = [key for key, _ in tool_choices(self.state, detected or detect_tools())]
+        if not choices:
+            return combined_view(self.state, enabled)
+        selected = self.state["selected_tool"]
+        return tool_view(self.state, selected if selected in choices else choices[0])
+
+    def _sessions_for(self, view):
+        keys = [view["key"]] if view["key"] != "all" else self.state["enabled_tools"]
+        sessions = []
+        for key in keys:
+            sessions += active_sessions() if key == "claude_code" else running_tool_sessions(key)
+        return sessions
 
     def _update_title(self):
+        view = self._current_view()
         mode = self.state["title_mode"]
         if mode == "today":
-            title = f"🪙 {format_count(self._today_tokens())}"
+            today = date.today()
+            title = f"🪙 {format_count(total_in_range(view['daily'], today, today))}"
         elif mode == "icon":
             title = "🪙"
         else:
-            title = f"🪙 {format_count(self.state['grand_total'])}"
+            title = f"🪙 {format_count(view['grand_total'])}"
         self.title = title
         # Redraw it at the size picked in Settings, with even-width digits so
         # the item doesn't jiggle as the count changes.
@@ -145,12 +181,23 @@ class TokenCounterApp(rumps.App):
             )
 
     def _render_panel(self):
-        view = self.state["leaderboard_view"]
+        detected = detect_tools()
+        view = self._current_view(detected)
+        choices = [] if self.state["combine_tools"] else tool_choices(self.state, detected)
+        friends = sorted_friends(load_friends(), by=self.state["leaderboard_view"])
         self.panel.render(
-            build_panel(self.state, active_sessions(), sorted_friends(load_friends(), by=view)),
-            settings_tab(self.state, self.paused, SCAN_INTERVAL_CHOICES),
+            build_panel(
+                view, self.state, self._sessions_for(view), friends,
+                leaderboard_enabled(self.state) and view["key"] == "claude_code",
+            ),
+            settings_tab(self.state, self.paused, SCAN_INTERVAL_CHOICES, detected),
             f"Tracking since {format_long_date(self.state['first_seen_at'])}",
             self.paused,
+            tool_choices=choices,
+            selected_tool=view["key"],
+            welcome=None if self.state["onboarding_done"]
+            else welcome_tab(detected, self.welcome_choice),
+            subtitle="All AI tools" if view["key"] == "all" else f"for {view['name']}",
         )
 
     def set_panel_tab(self, key):
@@ -198,7 +245,43 @@ class TokenCounterApp(rumps.App):
         elif action == "open_repo":
             self.panel.close()
             webbrowser.open(REPO_URL)
+        elif action == "select_tool":
+            choices = tool_choices(self.state, detect_tools())
+            self.state["selected_tool"] = choices[value][0]
+            save_state(self.state, STATE_FILE)
+            self._update_title()
+        elif action.startswith("welcome_tool:"):
+            key = action.split(":", 1)[1]
+            self.welcome_choice = [k for k in self.welcome_choice if k != key] + ([key] if value else [])
+        elif action == "welcome_done":
+            self.finish_welcome()
+        elif action.startswith("tool:"):
+            self.set_tool_enabled(action.split(":", 1)[1], value)
+        elif action == "combine_tools":
+            self.state["combine_tools"] = value
+            save_state(self.state, STATE_FILE)
+            self._update_title()
         self._render_panel()
+
+    def finish_welcome(self):
+        order = [key for key, _ in TOOLS]
+        self.state["enabled_tools"] = sorted(self.welcome_choice, key=order.index)
+        if self.state["enabled_tools"]:
+            self.state["selected_tool"] = self.state["enabled_tools"][0]
+        self.state["onboarding_done"] = True
+        scan_tools(self.state, self.state["enabled_tools"])
+        save_state(self.state, STATE_FILE)
+        self._update_title()
+
+    def set_tool_enabled(self, key, enabled):
+        order = [k for k, _ in TOOLS]
+        tools = set(self.state["enabled_tools"])
+        tools = tools | {key} if enabled else tools - {key}
+        self.state["enabled_tools"] = sorted(tools, key=order.index)
+        if enabled:
+            scan_tools(self.state, [key])
+        save_state(self.state, STATE_FILE)
+        self._update_title()
 
     def _leaderboard_payload(self):
         yesterday = date.today() - timedelta(days=1)
@@ -324,7 +407,7 @@ class TokenCounterApp(rumps.App):
         save_state(self.state, STATE_FILE)
 
     def refresh(self, _):
-        refresh_grand_total(self.state)
+        scan_tools(self.state, self.state["enabled_tools"])
         save_state(self.state, STATE_FILE)
         self._update_title()
         self._maybe_run_daily_leaderboard_sync()

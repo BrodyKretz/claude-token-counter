@@ -23,6 +23,7 @@ from datetime import date, timedelta
 
 from pricing import estimate_cost, format_dollars
 from token_math import format_count
+from tools import TOOL_NAMES, TOOLS, tool_view
 from version import FORK_AUTHOR, ORIGINAL_AUTHOR, __version__
 from usage_stats import (
     category_totals,
@@ -31,6 +32,7 @@ from usage_stats import (
     model_totals,
     models_all_time,
     models_in_range,
+    recorded_cost_in_range,
     top_projects,
 )
 
@@ -110,9 +112,9 @@ def _share_bar(label, count, whole):
 class _Data:
     """Everything the tabs need, computed once per render."""
 
-    def __init__(self, state, today):
-        self.state = state
-        self.daily = state.get("daily", {})
+    def __init__(self, view, today):
+        self.view = view
+        self.daily = view["daily"]
         self.today = today
         self.week_start = today - timedelta(days=6)
         self.today_models = models_in_range(self.daily, today, today)
@@ -120,13 +122,14 @@ class _Data:
         self.month_models = models_in_range(self.daily, today.replace(day=1), today)
         self.lifetime_models = models_all_time(self.daily)
         detailed = sum(t for _, t in model_totals(self.lifetime_models))
-        self.grand_total = state.get("grand_total", 0)
+        self.grand_total = view["grand_total"]
         self.earlier = max(self.grand_total - detailed, 0)
         self.today_total = sum(t for _, t in model_totals(self.today_models))
 
 
 def _overview_tab(d):
     stats = history(d.daily, d.today)
+    lifetime = category_totals(d.lifetime_models)
     series = daily_series(d.daily, d.today, CHART_DAYS)
     peak = max((t for _, t in series), default=0)
     history_items = [
@@ -139,12 +142,22 @@ def _overview_tab(d):
         history_items.append(
             ("row", f"Biggest day · {format_short_date(best_date)}", format_count(best_tokens))
         )
+    # Cache reads dominate some tools' totals; new input + output compares
+    # fairly across tools.
+    history_items.append(
+        ("row", "New input + output", format_count(lifetime["input"] + lifetime["output"]))
+    )
+    error_cards = []
+    if d.view["error"]:
+        error_cards = [{"title": None, "items": [
+            ("note", f"{d.view['name']} data couldn't be read: {d.view['error']}")
+        ]}]
     return {
         "key": "overview",
         "title": "Overview",
         "short": "Home",
         "icon": "square.grid.2x2",
-        "cards": [
+        "cards": error_cards + [
             {
                 "title": None,
                 "items": [
@@ -230,23 +243,31 @@ def _projects_tab(d):
 
 
 def _cost_tab(d):
-    costs = {
-        key: estimate_cost(models)
-        for key, models in (
-            ("today", d.today_models),
-            ("week", d.week_models),
-            ("month", d.month_models),
-            ("all", d.lifetime_models),
-        )
+    ranges = {
+        "today": (d.today, d.today),
+        "week": (d.week_start, d.today),
+        "month": (d.today.replace(day=1), d.today),
+        "all": (date.min, date.max),
     }
+    # Price each tool on its own: a cost one tool recorded for a model must
+    # not stand in for another tool's tokens of the same model.
+    dailies = [v["daily"] for v in d.view.get("views", [d.view])]
+    costs = {}
+    for key, (start, end) in ranges.items():
+        per_tool = [
+            estimate_cost(models_in_range(daily, start, end),
+                          recorded_cost_in_range(daily, start, end))
+            for daily in dailies
+        ]
+        costs[key] = (sum(c for c, _ in per_tool), sum(u for _, u in per_tool))
     notes = []
     unpriced = max(u for _, u in costs.values())
     if unpriced:
         notes.append(("note", f"{format_count(unpriced)} tokens from unknown models not priced"))
     if d.earlier:
         notes.append(("note", f"{format_count(d.earlier)} older tokens not priced (no model detail)"))
-    notes.append(("note", "Estimate at API list prices. Claude Pro is flat-rate,"))
-    notes.append(("note", "so you aren't billed this."))
+    notes.append(("note", "Estimate at API list prices. Subscriptions are"))
+    notes.append(("note", "flat-rate, so you aren't billed this."))
     return {
         "key": "cost",
         "title": "Estimated API Cost",
@@ -277,11 +298,16 @@ def _cost_tab(d):
     }
 
 
-def _sessions_tab(sessions):
+def _sessions_tab(view, sessions):
     if sessions:
-        items = [("row", s["label"], format_count(s["tokens"])) for s in sessions]
+        items = [
+            ("row", s["label"], "running" if s["tokens"] is None else format_count(s["tokens"]))
+            for s in sessions
+        ]
+    elif view["key"] == "all":
+        items = [("note", "No sessions running")]
     else:
-        items = [("note", "No Claude Code sessions running")]
+        items = [("note", f"No {view['name']} sessions running")]
     return {
         "key": "sessions",
         "title": "Active Sessions",
@@ -336,7 +362,49 @@ def _leaderboard_tab(state, friends):
     }
 
 
-def settings_tab(state, paused, interval_choices):
+def _tools_card(state, detected):
+    enabled = state.get("enabled_tools", [])
+    # Enabled tools stay listed even if their data has gone, so they can be
+    # turned off.
+    keys = [key for key, _ in TOOLS if key in detected or key in enabled]
+    items = [("switch", TOOL_NAMES[key], key in enabled, f"tool:{key}") for key in keys]
+    items.append(("switch", "Combine all tools", state.get("combine_tools", False), "combine_tools"))
+    return {"title": "AI tools", "items": items}
+
+
+def welcome_tab(detected, chosen):
+    """First-run picker: which AI tools to track."""
+    if detected:
+        items = [("note", "Which AI tools do you use?"),
+                 ("note", "You can change this later in Settings.")]
+        items += [("switch", TOOL_NAMES[key], key in chosen, f"welcome_tool:{key}") for key in detected]
+    else:
+        items = [("note", "No supported AI tools found on this Mac yet.")]
+    items.append(("buttons", [("Continue", "arrow.right.circle", "welcome_done")]))
+    return {
+        "key": "welcome",
+        "title": "Welcome",
+        "short": "Welcome",
+        "icon": "hand.wave",
+        "cards": [{"title": "Choose your AI tools", "items": items}],
+    }
+
+
+def tool_choices(state, detected):
+    """[(key, name)] for the tool switcher: enabled tools that are on this
+    Mac or have saved history."""
+    enabled = state.get("enabled_tools", [])
+    choices = []
+    for key, name in TOOLS:
+        if key not in enabled:
+            continue
+        view = tool_view(state, key)
+        if key in detected or view["daily"] or view["grand_total"]:
+            choices.append((key, name))
+    return choices
+
+
+def settings_tab(state, paused, interval_choices, detected):
     modes = [key for key, _ in TITLE_MODES]
     mode = state.get("title_mode", "lifetime")
     interval = state.get("scan_interval_seconds", interval_choices[0])
@@ -347,6 +415,7 @@ def settings_tab(state, paused, interval_choices):
         "short": "Settings",
         "icon": "slider.horizontal.3",
         "cards": [
+            _tools_card(state, detected),
             {
                 "title": "Menu bar",
                 "items": [
@@ -395,17 +464,18 @@ def leaderboard_enabled(state):
     return state.get("leaderboard_enabled", bool(state.get("my_gist_id")))
 
 
-def build_panel(state, sessions, friends, today=None):
-    """The tabs shown in the tab bar, in order."""
-    d = _Data(state, today or date.today())
+def build_panel(view, state, sessions, friends, show_leaderboard, today=None):
+    """The tabs shown in the tab bar, in order, for one tool's view (or the
+    combined view)."""
+    d = _Data(view, today or date.today())
     tabs = [
         _overview_tab(d),
         _breakdown_tab(d),
         _models_tab(d),
         _projects_tab(d),
         _cost_tab(d),
-        _sessions_tab(sessions),
+        _sessions_tab(view, sessions),
     ]
-    if leaderboard_enabled(state):
+    if show_leaderboard:
         tabs.append(_leaderboard_tab(state, friends))
     return tabs

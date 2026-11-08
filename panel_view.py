@@ -33,6 +33,8 @@ from AppKit import (
     NSEventMaskRightMouseDown,
     NSPopoverBehaviorApplicationDefined,
     NSPopUpButton,
+    NSScreen,
+    NSScrollView,
     NSSegmentDistributionFillEqually,
     NSSegmentedControl,
     NSSegmentSwitchTrackingSelectOne,
@@ -65,6 +67,13 @@ HEIGHTS = {
     "switch": 30,
 }
 CARD_TITLE_HEIGHT = 24
+SCREEN_MARGIN = 40  # keep the panel this far from the bottom of the screen
+
+
+def panel_height(content_height, screen_height):
+    """How tall the panel is: its content, capped so it fits on screen
+    (anything beyond scrolls)."""
+    return min(content_height, screen_height - SCREEN_MARGIN)
 
 
 # --- small drawing helpers -------------------------------------------------
@@ -243,8 +252,14 @@ class Panel:
         self._target = _ActionTarget.alloc().initWithPanel_(self)
 
         self.root = _FlippedView.alloc().initWithFrame_(NSMakeRect(0, 0, WIDTH, 400))
+        # The content scrolls when it's taller than the screen allows.
+        self.scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(0, 0, WIDTH, 400))
+        self.scroll.setDocumentView_(self.root)
+        self.scroll.setHasVerticalScroller_(True)
+        self.scroll.setAutohidesScrollers_(True)
+        self.scroll.setDrawsBackground_(False)
         controller = NSViewController.alloc().init()
-        controller.setView_(self.root)
+        controller.setView_(self.scroll)
         self.popover = NSPopover.alloc().init()
         self.popover.setContentViewController_(controller)
         # Not NSPopoverBehaviorTransient: that closes the panel whenever this
@@ -354,11 +369,18 @@ class Panel:
 
     # -- rendering
 
-    def render(self, tabs, settings, footer, paused):
+    def render(self, tabs, settings, footer, paused, tool_choices=None, selected_tool=None,
+               welcome=None, subtitle="for Claude Code"):
+        """`tool_choices` [(key, name)] adds a tool switcher when there are 2+;
+        `welcome` (a tab) replaces everything with the first-run picker."""
         self.tabs = tabs
         self.settings = settings
         self.footer = footer
         self.paused = paused
+        self.tool_choices = tool_choices or []
+        self.selected_tool = selected_tool
+        self.welcome = welcome
+        self.subtitle = subtitle
         if self.selected not in [t["key"] for t in tabs] + ["settings"]:
             self.selected = tabs[0]["key"]
         self._draw()
@@ -378,6 +400,17 @@ class Panel:
 
         y = PAD
         y = self._draw_header(y, inner)
+        if self.welcome:
+            self._draw_titled_cards(self.welcome, y, inner)
+            return
+        if len(self.tool_choices) >= 2:
+            keys = [key for key, _ in self.tool_choices]
+            selected = keys.index(self.selected_tool) if self.selected_tool in keys else 0
+            self._draw_segmented(
+                ("segmented", None, [name for _, name in self.tool_choices], selected, "select_tool"),
+                PAD, y - 4, inner,
+            )
+            y += HEIGHTS["segmented"] + 2
         y = self._draw_tab_bar(y, inner) + 12
 
         tab = self._current_tab()
@@ -392,9 +425,24 @@ class Panel:
             y = self._draw_card(card, y, inner) + GAP
 
         y = self._draw_footer(y, inner)
-        height = y + PAD
+        self._set_height(y + PAD)
+
+    def _set_height(self, height):
         self.root.setFrameSize_((WIDTH, height))
-        self.popover.setContentSize_((WIDTH, height))
+        screen = NSScreen.mainScreen()
+        screen_height = screen.visibleFrame().size.height if screen else height + SCREEN_MARGIN
+        self.popover.setContentSize_((WIDTH, panel_height(height, screen_height)))
+
+    def _draw_titled_cards(self, tab, y, inner):
+        """A tab drawn on its own, under a title (the first-run picker)."""
+        self.root.addSubview_(
+            _label(tab["title"], NSMakeRect(PAD + 2, y + 4, inner, 20), size=15,
+                   weight=NSFontWeightSemibold)
+        )
+        y += 32
+        for card in tab["cards"]:
+            y = self._draw_card(card, y, inner) + GAP
+        self._set_height(y + PAD)
 
     def _draw_header(self, y, inner):
         self.root.addSubview_(_label("🪙", NSMakeRect(PAD, y + 2, 28, 28), size=22))
@@ -403,7 +451,7 @@ class Panel:
                    size=14, weight=NSFontWeightSemibold)
         )
         self.root.addSubview_(
-            _label("for Claude Code", NSMakeRect(PAD + 34, y + 17, 200, 15), size=11,
+            _label(getattr(self, "subtitle", "for Claude Code"), NSMakeRect(PAD + 34, y + 17, 220, 15), size=11,
                    color=NSColor.secondaryLabelColor())
         )
         if self.paused:
