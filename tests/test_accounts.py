@@ -294,3 +294,10 @@ def test_account_due():
     assert account_due(None, now)
     assert account_due({"attempted_at": "2026-11-08T11:44:00"}, now)
     assert not account_due({"attempted_at": "2026-11-08T11:50:00"}, now)
+
+
+def test_timeout_is_reported_not_raised():
+    api = FakeApi({("api.deepseek.com", "/user/balance"): TimeoutError("timed out")})
+
+    assert fetch_account("deepseek", "sk-1234567890", get=api)["error"] == \
+        "couldn't reach DeepSeek (timed out)"

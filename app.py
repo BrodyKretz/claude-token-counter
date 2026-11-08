@@ -1,12 +1,14 @@
 import os
 import subprocess
 import sys
+import threading
 import urllib.error
 import webbrowser
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import rumps
+from PyObjCTools import AppHelper
 from AppKit import (
     NSApplication,
     NSApplicationActivationPolicyAccessory,
@@ -16,6 +18,7 @@ from AppKit import (
     NSImageLeft,
 )
 
+from accounts import KEY_HELP, account_due, delete_key, fetch_account, load_key, save_key, store_result
 from active_sessions import active_sessions, running_tool_sessions
 from gist_sync import (
     NEW_TOKEN_URL,
@@ -37,7 +40,7 @@ from stats_tabs import (
     format_long_date,
     leaderboard_enabled,
     settings_tab,
-    tool_choices,
+    view_choices,
     welcome_tab,
 )
 from token_math import (
@@ -48,6 +51,7 @@ from token_math import (
     sum_usage_for_today,
 )
 from tool_icons import menu_bar_image
+from providers import PROVIDER_NAMES, PROVIDERS, provider_view, tools_to_scan
 from tools import TOOLS, combined_view, detect_tools, scan_tools, tool_view
 from usage_stats import total_in_range
 from version import APP_NAME, REPO_URL
@@ -69,6 +73,12 @@ def init_tool_state(state, fresh_install):
         "selected_tool", state["enabled_tools"][0] if state["enabled_tools"] else "claude_code"
     )
     state.setdefault("onboarding_done", not fresh_install)
+
+
+def init_provider_state(state):
+    """Provider tracking starts off; nothing already in `state` changes."""
+    state.setdefault("enabled_providers", [])
+    state.setdefault("provider_keys", [])  # which providers have a key in the Keychain
 
 
 def menu_bar_label(view_key, count_text, has_icon):
@@ -106,6 +116,9 @@ class TokenCounterApp(rumps.App):
         fresh_install = not STATE_FILE.exists()
         self.state = load_state(STATE_FILE)
         init_tool_state(self.state, fresh_install)
+        init_provider_state(self.state)
+        self._fetching = set()  # providers with an account fetch in flight
+        self._fetched = []  # (provider, result) waiting to be saved on the main thread
         self.welcome_choice = []
         self.state.setdefault("first_seen_at", None)
         self.state.setdefault("start_at_login", True)
@@ -123,8 +136,9 @@ class TokenCounterApp(rumps.App):
         # Backfill must run before the first refresh: it re-reads each file
         # only up to the offsets saved by the previous run.
         backfill_daily(self.state)
-        scan_tools(self.state, self.state["enabled_tools"])
+        self._scan()
         save_state(self.state, STATE_FILE)
+        self._fetch_accounts()
 
         self.paused = False
         self.panel = Panel(
@@ -149,19 +163,27 @@ class TokenCounterApp(rumps.App):
         if not self.state["onboarding_done"]:
             self.panel.show()  # first run: ask which tools to track
 
+    def _scan(self, detected=None):
+        scan_tools(self.state, tools_to_scan(self.state, detected or detect_tools()))
+
     def _current_view(self, detected=None):
-        """The view the panel and menu bar show: the selected tool, or every
-        enabled tool combined."""
+        """The view the panel and menu bar show: the selected tool or
+        provider, or every enabled tool combined."""
         enabled = self.state["enabled_tools"]
-        if self.state["combine_tools"]:
-            return combined_view(self.state, enabled)
-        choices = [key for key, _ in tool_choices(self.state, detected or detect_tools())]
+        choices = [key for key, _ in view_choices(self.state, detected or detect_tools())]
         if not choices:
             return combined_view(self.state, enabled)
         selected = self.state["selected_tool"]
-        return tool_view(self.state, selected if selected in choices else choices[0])
+        key = selected if selected in choices else choices[0]
+        if key == "all":
+            return combined_view(self.state, enabled)
+        if key in PROVIDER_NAMES:
+            return provider_view(self.state, key)
+        return tool_view(self.state, key)
 
     def _sessions_for(self, view):
+        if view["key"] in PROVIDER_NAMES:
+            return []
         keys = [view["key"]] if view["key"] != "all" else self.state["enabled_tools"]
         sessions = []
         for key in keys:
@@ -200,7 +222,7 @@ class TokenCounterApp(rumps.App):
     def _render_panel(self):
         detected = detect_tools()
         view = self._current_view(detected)
-        choices = [] if self.state["combine_tools"] else tool_choices(self.state, detected)
+        choices = view_choices(self.state, detected)
         friends = sorted_friends(load_friends(), by=self.state["leaderboard_view"])
         self.panel.render(
             build_panel(
@@ -228,6 +250,11 @@ class TokenCounterApp(rumps.App):
             "leaderboard_share": self.share_friend_code,
             "leaderboard_add": self.add_friend_by_code,
         }
+        provider_dialogs = {
+            "provider_key": self.add_api_key,
+            "provider_key_remove": self.remove_api_key,
+        }
+        name, _, argument = action.partition(":")
         if action == "quit":
             rumps.quit_application()
             return
@@ -235,6 +262,11 @@ class TokenCounterApp(rumps.App):
             # Dialogs can't sit on top of the popover, so close it first.
             self.panel.close()
             dialogs[action]()
+        elif name in provider_dialogs and argument in PROVIDER_NAMES:
+            self.panel.close()
+            provider_dialogs[name](argument)
+        elif name == "provider" and argument in PROVIDER_NAMES:
+            self.set_provider_enabled(argument, value)
         elif action == "leaderboard_push":
             self.push_leaderboard_update()
         elif action == "leaderboard_pull":
@@ -263,7 +295,7 @@ class TokenCounterApp(rumps.App):
             self.panel.close()
             webbrowser.open(REPO_URL)
         elif action == "select_tool":
-            choices = tool_choices(self.state, detect_tools())
+            choices = view_choices(self.state, detect_tools())
             self.state["selected_tool"] = choices[value][0]
             save_state(self.state, STATE_FILE)
             self._update_title()
@@ -286,7 +318,7 @@ class TokenCounterApp(rumps.App):
         if self.state["enabled_tools"]:
             self.state["selected_tool"] = self.state["enabled_tools"][0]
         self.state["onboarding_done"] = True
-        scan_tools(self.state, self.state["enabled_tools"])
+        self._scan()
         save_state(self.state, STATE_FILE)
         self._update_title()
 
@@ -299,6 +331,97 @@ class TokenCounterApp(rumps.App):
             scan_tools(self.state, [key])
         save_state(self.state, STATE_FILE)
         self._update_title()
+
+    def set_provider_enabled(self, key, enabled):
+        order = [k for k, _ in PROVIDERS]
+        providers = set(self.state["enabled_providers"])
+        providers = providers | {key} if enabled else providers - {key}
+        self.state["enabled_providers"] = sorted(providers, key=order.index)
+        if enabled:
+            self._scan()  # a provider's models may be in tools not enabled yet
+            self._fetch_accounts()
+        save_state(self.state, STATE_FILE)
+        self._update_title()
+
+    def add_api_key(self, provider):
+        name = PROVIDER_NAMES[provider]
+        response = rumps.Window(
+            message=(f"Paste your {name} API key. It's stored only in this Mac's "
+                     f"Keychain and sent only to {name}.\n\n{KEY_HELP[provider]}."),
+            title=f"{name} API Key",
+            ok="Save",
+            cancel="Cancel",
+            secure=True,
+        ).run()
+        if not response.clicked or not response.text.strip():
+            return
+        try:
+            save_key(provider, response.text)
+        except (ValueError, OSError) as e:
+            rumps.alert("Key Not Saved", str(e))
+            return
+        keys = set(self.state["provider_keys"]) | {provider}
+        self.state["provider_keys"] = [k for k, _ in PROVIDERS if k in keys]
+        self.state.get("accounts", {}).pop(provider, None)  # numbers from an older key
+        save_state(self.state, STATE_FILE)
+        self._fetch_accounts(force=provider)
+
+    def remove_api_key(self, provider):
+        name = PROVIDER_NAMES[provider]
+        confirmed = rumps.alert(
+            f"Remove {name} API Key?",
+            f"This deletes the key from this Mac's Keychain. To see {name} account "
+            "numbers again you'll need to paste it again.",
+            ok="Remove",
+            cancel="Cancel",
+        )
+        if not confirmed:
+            return
+        delete_key(provider)
+        self.state["provider_keys"] = [k for k in self.state["provider_keys"] if k != provider]
+        self.state.get("accounts", {}).pop(provider, None)
+        save_state(self.state, STATE_FILE)
+        self._render_panel()
+
+    def _fetch_accounts(self, force=None):
+        """Start a background fetch for each enabled provider with a key whose
+        numbers are due (every 15 minutes) or `force`d."""
+        saved = self.state.get("accounts", {})
+        for key in self.state["enabled_providers"]:
+            if key not in self.state["provider_keys"] or key in self._fetching:
+                continue
+            if key != force and not account_due(saved.get(key)):
+                continue
+            self._fetching.add(key)
+            threading.Thread(target=self._fetch_account, args=(key,), daemon=True).start()
+
+    def _fetch_account(self, provider):
+        """Runs on a background thread; the result is saved on the main thread."""
+        try:
+            api_key = load_key(provider)
+            if api_key:
+                result = fetch_account(provider, api_key)
+            else:
+                result = {"error": "the key is no longer in the Keychain"}
+        except Exception as e:  # keep the fetch from being stuck "in flight"
+            result = {"error": f"unexpected problem ({type(e).__name__})"}
+        if result["error"] and "fetched_at" not in result:
+            result = {"daily": {}, "cost": {}, "rows": [], "notes": [], **result,
+                      "fetched_at": datetime.now().isoformat(timespec="seconds")}
+        self._fetched.append((provider, result))
+        AppHelper.callAfter(self._show_fetched_accounts)
+
+    def _show_fetched_accounts(self):
+        self._save_fetched_accounts()
+        save_state(self.state, STATE_FILE)
+        self._render_panel()
+
+    def _save_fetched_accounts(self):
+        while self._fetched:
+            provider, result = self._fetched.pop(0)
+            self._fetching.discard(provider)
+            if provider in self.state["provider_keys"]:  # not removed meanwhile
+                store_result(self.state, provider, result)
 
     def _leaderboard_payload(self):
         yesterday = date.today() - timedelta(days=1)
@@ -424,8 +547,10 @@ class TokenCounterApp(rumps.App):
         save_state(self.state, STATE_FILE)
 
     def refresh(self, _):
-        scan_tools(self.state, self.state["enabled_tools"])
+        self._scan()
+        self._save_fetched_accounts()
         save_state(self.state, STATE_FILE)
+        self._fetch_accounts()
         self._update_title()
         self._maybe_run_daily_leaderboard_sync()
         self._render_panel()

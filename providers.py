@@ -38,6 +38,15 @@ def provider_of(model):
     return VENDORS.get(vendor)
 
 
+def tools_to_scan(state, detected):
+    """Enabled tools, plus every tool on this Mac while any provider is on
+    (a provider's models can run in any of them)."""
+    wanted = set(state.get("enabled_tools", []))
+    if state.get("enabled_providers"):
+        wanted |= set(detected)
+    return [key for key, _ in TOOLS if key in wanted]
+
+
 def provider_view(state, key):
     """Usage of `key`'s models through every tool with data on this Mac."""
     views = []

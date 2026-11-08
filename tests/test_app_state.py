@@ -58,3 +58,18 @@ def test_menu_bar_label_uses_tool_icon_or_coin():
     assert menu_bar_label("codex", "39.4M", has_icon=False) == ("🪙 39.4M", False)
     assert menu_bar_label("codex", None, has_icon=True) == ("", True)  # icon-only mode
     assert menu_bar_label("all", None, has_icon=False) == ("🪙", False)
+
+
+def test_provider_settings_default_off_without_touching_preferences():
+    from app import init_provider_state
+    state = copy.deepcopy(EXISTING)
+
+    init_provider_state(state)
+
+    for key, value in EXISTING.items():
+        assert state[key] == value, key
+    assert state["enabled_providers"] == []
+    assert state["provider_keys"] == []
+    state["enabled_providers"] = ["kimi"]
+    init_provider_state(state)
+    assert state["enabled_providers"] == ["kimi"]

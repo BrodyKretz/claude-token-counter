@@ -18,7 +18,9 @@ By default it never connects to the internet or sends your data anywhere. The on
   From these it reads only token counts, which model was used, when, and which project folder. It skips your prompts, code and replies, and never touches opencode's account or credential tables.
 - `launchctl`, macOS's own built-in tool, only to turn its "start at login" setting on or off
 
-**The one exception is the Leaderboard (Beta) feature, and it's entirely opt-in** -- its tab is hidden until you turn on **Show Leaderboard (Beta)** in Settings, and nothing below happens unless you then click "Set Up Leaderboard" yourself. See the [Leaderboard (Beta)](#leaderboard-beta) section for exactly what that does.
+**There are two exceptions, both opt-in:** an API key you add for an AI provider (see [AI providers](#ai-providers-openai-deepseek-kimi)), and the Leaderboard (Beta) feature.
+
+**The Leaderboard (Beta) is entirely opt-in** -- its tab is hidden until you turn on **Show Leaderboard (Beta)** in Settings, and nothing below happens unless you then click "Set Up Leaderboard" yourself. See the [Leaderboard (Beta)](#leaderboard-beta) section for exactly what that does.
 
 ## Quick start
 
@@ -50,7 +52,24 @@ A panel opens with a row of tabs along the top. Click an icon to switch tabs:
 - **Active Sessions** -- every Claude Code terminal you currently have open, and how many tokens each one has used
 - **Leaderboard (Beta)** -- hidden unless you turn it on in Settings; see below, this one's still a work in progress
 
-At the bottom: the date you started tracking, a **Settings** button (which AI tools to track and whether to combine them; what the menu bar shows -- lifetime total, today's total, or just the icon -- and its text size; how often to scan; pause scanning; start at login; show the Leaderboard; version and credits) and **Quit**. Click anywhere outside the panel to close it.
+At the bottom: the date you started tracking, a **Settings** button (which AI tools to track and whether to combine them; which AI providers to track and their optional API keys; what the menu bar shows -- lifetime total, today's total, or just the icon -- and its text size; how often to scan; pause scanning; start at login; show the Leaderboard; version and credits) and **Quit**. Click anywhere outside the panel to close it.
+
+### AI providers (OpenAI, DeepSeek, Kimi)
+
+Turn on OpenAI, DeepSeek or Kimi under **AI providers** in Settings (all off by default) and each appears in the **Tracking** dropdown. A provider view counts that company's models wherever they ran -- Claude Code, Codex or opencode -- using the tools' own exact token counts, so **no sign-in or key is needed**. The model name decides the company (`gpt-*`, `o3`, `codex-*` → OpenAI; `deepseek-*` → DeepSeek; `kimi-*`, `moonshot-*` → Kimi), so e.g. Kimi via OpenRouter still counts as Kimi. While any provider is on, every tool found on your Mac is read (read-only), so Codex counts toward OpenAI even if the Codex view is off. "Combine all tools" doesn't add provider views on top, so nothing is counted twice. Live Sessions isn't shown for providers, since a running session can't be tied to one company.
+
+**Optional API key, for usage from outside this Mac.** Each provider view has an account card. Add a key in Settings and it shows what that provider's own API reports:
+
+| Provider | Key | Shows |
+|---|---|---|
+| OpenAI | admin key (`sk-admin-…`, from Settings → Admin keys) | daily tokens per model and billed cost, last 30 days |
+| Kimi | admin key (`sk-admin-…`, `billing:read`) | daily tokens per model, balance, total spent |
+| Kimi | ordinary API key | balance |
+| DeepSeek | API key | balance (DeepSeek has no usage-history API) |
+
+These account numbers are shown in their own card and never added to the local totals, since the two overlap. Numbers refresh every 15 minutes; if a refresh fails, the last good numbers stay with the error shown under them.
+
+**How keys are kept private:** a key is stored only in your **macOS Keychain**, written through `security -i` on standard input so it never appears in a process list. It's never written to `state.json`, any log or this repo. It's sent only over HTTPS, only to that provider's own API (`api.openai.com`, `api.deepseek.com`, or `api.moonshot.ai` / `api.moonshot.cn`), and redirects aren't followed. **Remove Key** deletes it from the Keychain. Only usage numbers and balances are requested.
 
 ### Leaderboard (Beta)
 
@@ -103,7 +122,9 @@ usage_stats.py               per-day buckets and the breakdown / model / project
 codex_source.py              reads Codex usage from its session logs
 opencode_source.py           reads opencode usage from its database (read-only)
 tools.py                     the supported tools, detection, scanning, per-tool and combined views
-tool_icons.py                finds each tool's icon on this Mac for the menu bar
+providers.py                 OpenAI / DeepSeek / Kimi: which models are theirs, provider views
+accounts.py                  optional provider API keys (Keychain) and account usage/balance fetching
+tool_icons.py                finds each tool's or provider's icon on this Mac for the menu bar (or draws a monogram)
 stats_tabs.py                what each panel tab shows, as plain data
 panel_view.py                draws the panel (tabs, cards, bars, chart, settings) with AppKit
 pricing.py                   API price table and the estimated-cost math

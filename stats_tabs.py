@@ -479,6 +479,16 @@ def tool_choices(state, detected):
     return choices
 
 
+def view_choices(state, detected):
+    """[(key, name)] for the "Tracking" dropdown. With tools combined, it
+    offers the combined view plus any enabled providers."""
+    if not state.get("combine_tools"):
+        return tool_choices(state, detected)
+    providers = [(key, name) for key, name in PROVIDERS
+                 if key in state.get("enabled_providers", [])]
+    return [("all", "All tools")] + providers if providers else []
+
+
 def settings_tab(state, paused, interval_choices, detected):
     modes = [key for key, _ in TITLE_MODES]
     mode = state.get("title_mode", "lifetime")

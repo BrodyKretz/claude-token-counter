@@ -80,3 +80,15 @@ def test_provider_view_with_no_data():
 
     assert view["daily"] == {}
     assert view["grand_total"] == 0
+
+
+def test_tools_to_scan_adds_every_detected_tool_while_a_provider_is_on():
+    from providers import tools_to_scan
+    detected = ["claude_code", "codex", "opencode"]
+
+    assert tools_to_scan({"enabled_tools": ["claude_code"]}, detected) == ["claude_code"]
+    assert tools_to_scan({"enabled_tools": ["claude_code"], "enabled_providers": ["openai"]},
+                         detected) == ["claude_code", "codex", "opencode"]
+    # An enabled tool whose data is gone is still scanned, as before.
+    assert tools_to_scan({"enabled_tools": ["codex"], "enabled_providers": ["kimi"]},
+                         ["opencode"]) == ["codex", "opencode"]

@@ -141,6 +141,8 @@ def _describe(error, name):
         return f"{name} answered HTTP {error.code}"
     if isinstance(error, urllib.error.URLError):
         return f"couldn't reach {name} ({error.reason})"
+    if isinstance(error, OSError):  # e.g. a timeout while reading the answer
+        return f"couldn't reach {name} ({error})"
     return f"{name} sent an unexpected response"
 
 
@@ -190,7 +192,7 @@ def _fetch_openai(key, today, get):
                 iso = datetime.fromtimestamp(bucket["start_time"]).date().isoformat()
                 for row in bucket["results"]:
                     result["cost"][iso] = result["cost"].get(iso, 0.0) + float(row["amount"]["value"])
-    except (urllib.error.URLError, KeyError, TypeError, ValueError) as e:
+    except (OSError, KeyError, TypeError, ValueError) as e:
         result["cost"] = {}
         result["notes"].append(f"Billed cost unavailable: {_describe(e, 'OpenAI')}")
     return result
@@ -258,7 +260,7 @@ def fetch_account(provider, key, today=None, get=None):
     get = get or (lambda url, k: http_get_json(url, k, provider))
     try:
         result = FETCHERS[provider](key, today or date.today(), get)
-    except (urllib.error.URLError, KeyError, TypeError, ValueError, AttributeError) as e:
+    except (OSError, KeyError, TypeError, ValueError, AttributeError) as e:
         result = {**_empty_result(), "error": _describe(e, NAMES[provider])}
     result["fetched_at"] = datetime.now().isoformat(timespec="seconds")
     return result

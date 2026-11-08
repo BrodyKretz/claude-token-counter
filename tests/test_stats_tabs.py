@@ -370,3 +370,19 @@ def test_long_notes_are_split_into_lines():
     assert len(lines) > 1
     assert all(item[0] == "note" and len(item[1]) <= 46 for item in lines)
     assert " ".join(item[1] for item in lines) == text
+
+
+def test_view_choices_when_combined_offers_all_tools_and_providers():
+    from stats_tabs import view_choices
+    state = {"enabled_tools": ["claude_code"], "combine_tools": True}
+
+    assert view_choices(state, ["claude_code"]) == []
+    state["enabled_providers"] = ["deepseek"]
+    assert view_choices(state, ["claude_code"]) == [("all", "All tools"), ("deepseek", "DeepSeek")]
+
+
+def test_view_choices_per_tool_matches_tool_choices():
+    from stats_tabs import view_choices
+    state = {"enabled_tools": ["claude_code"], "enabled_providers": ["kimi"]}
+
+    assert view_choices(state, ["claude_code"]) == tool_choices(state, ["claude_code"])
