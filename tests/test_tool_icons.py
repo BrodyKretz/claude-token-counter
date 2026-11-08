@@ -47,3 +47,25 @@ def test_app_is_preferred_over_extension(tmp_path):
 
 def test_nothing_found_returns_none(tmp_path):
     assert icon_source("opencode", apps({}), [tmp_path]) is None
+
+
+def test_openai_uses_the_same_sources_as_codex(tmp_path):
+    svg = make_extension(tmp_path, "openai.chatgpt-26.1-darwin-arm64", "resources/blossom-black.svg")
+
+    assert icon_source("openai", apps({}), [tmp_path]) == {"path": str(svg), "app": False, "template": True}
+    assert icon_source("openai", apps({"com.openai.chat": "/Applications/ChatGPT.app"}), [])["path"] \
+        == "/Applications/ChatGPT.app"
+
+
+def test_provider_app_found_by_name(tmp_path):
+    (tmp_path / "Kimi.app").mkdir()
+
+    found = icon_source("kimi", apps({}), [], app_dirs=[tmp_path / "missing", tmp_path])
+
+    assert found == {"path": str(tmp_path / "Kimi.app"), "app": True, "template": False}
+
+
+def test_providers_without_an_app_get_a_monogram():
+    from tool_icons import MONOGRAMS
+    assert MONOGRAMS == {"openai": "AI", "deepseek": "DS", "kimi": "K"}
+    assert icon_source("deepseek", apps({}), [], app_dirs=[]) is None
