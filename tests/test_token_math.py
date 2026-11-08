@@ -1,11 +1,12 @@
 import json
 import os
 import time
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
 from token_math import (
+    backfill_daily,
     format_count,
     refresh_grand_total,
     sum_usage_for_today,
@@ -177,8 +178,8 @@ def test_sum_usage_for_today_skips_files_not_modified_today(tmp_path):
     project.mkdir(parents=True)
     path = project / "session.jsonl"
     write_jsonl(path, [assistant_entry(10, 10, timestamp="2026-07-29T12:00:00.000Z")])
-    two_days_ago = time.time() - 86400 * 2
-    os.utime(path, (two_days_ago, two_days_ago))
+    two_days_before = datetime(2026, 7, 27, 12, 0).timestamp()
+    os.utime(path, (two_days_before, two_days_before))
 
     total = sum_usage_for_today(projects_dir=projects_dir, today=date(2026, 7, 29))
 
@@ -203,3 +204,59 @@ def test_sum_usage_for_today_ignores_entries_missing_usage_or_timestamp(tmp_path
     total = sum_usage_for_today(projects_dir=projects_dir, today=date(2026, 7, 29))
 
     assert total == 6
+
+
+def test_refresh_records_daily_buckets(tmp_path):
+    projects_dir = tmp_path / "projects"
+    project = projects_dir / "p"
+    project.mkdir(parents=True)
+    write_jsonl(
+        project / "s.jsonl",
+        [assistant_entry(1, 2, 3, 4, timestamp="2026-07-29T12:00:00.000Z")],
+    )
+    state = {"grand_total": 0, "file_offsets": {}}
+
+    refresh_grand_total(state, projects_dir=projects_dir)
+
+    assert state["grand_total"] == 10
+    assert len(state["daily"]) == 1
+
+
+def test_backfill_reads_only_up_to_saved_offsets_and_keeps_grand_total(tmp_path):
+    path = tmp_path / "s.jsonl"
+    write_jsonl(
+        path,
+        [
+            assistant_entry(5, 5, timestamp="2026-07-29T12:00:00.000Z"),
+            assistant_entry(100, 100, timestamp="2026-07-29T13:00:00.000Z"),
+        ],
+    )
+    first_line_end = len(path.read_bytes().splitlines(keepends=True)[0])
+    state = {"grand_total": 999, "file_offsets": {str(path): first_line_end}}
+
+    backfill_daily(state)
+
+    day = next(iter(state["daily"].values()))
+    assert sum(day["models"]["unknown"].values()) == 10
+    assert state["grand_total"] == 999
+    assert state["daily_backfilled"] is True
+
+
+def test_backfill_runs_only_once(tmp_path):
+    path = tmp_path / "s.jsonl"
+    write_jsonl(path, [assistant_entry(5, 5, timestamp="2026-07-29T12:00:00.000Z")])
+    state = {"grand_total": 0, "file_offsets": {str(path): path.stat().st_size}}
+
+    backfill_daily(state)
+    backfill_daily(state)
+
+    day = next(iter(state["daily"].values()))
+    assert sum(day["models"]["unknown"].values()) == 10
+
+
+def test_backfill_skips_missing_files(tmp_path):
+    state = {"grand_total": 0, "file_offsets": {str(tmp_path / "gone.jsonl"): 50}}
+
+    backfill_daily(state)
+
+    assert state["daily"] == {}

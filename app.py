@@ -6,7 +6,13 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import rumps
-from AppKit import NSAttributedString, NSFont, NSFontAttributeName
+from AppKit import (
+    NSApplication,
+    NSApplicationActivationPolicyAccessory,
+    NSAttributedString,
+    NSFont,
+    NSFontAttributeName,
+)
 
 from active_sessions import active_sessions
 from gist_sync import (
@@ -18,18 +24,44 @@ from gist_sync import (
     update_gist,
 )
 from leaderboard import load_friends, save_friends, sorted_friends
+from pricing import estimate_cost, format_dollars
 from token_math import (
+    backfill_daily,
     format_count,
     load_state,
     refresh_grand_total,
     save_state,
     sum_usage_for_today,
 )
+from usage_stats import (
+    category_totals,
+    history,
+    model_totals,
+    models_all_time,
+    models_in_range,
+    top_projects,
+    total_in_range,
+)
 
 STATE_FILE = Path(__file__).resolve().parent / "state.json"
 REFRESH_SECONDS = 15
 SCAN_INTERVAL_CHOICES = [5, 15, 30, 60, 300]
 LABEL = "com.claudetokencounter.menubar"
+
+TITLE_MODES = [
+    ("lifetime", "Lifetime Total"),
+    ("today", "Today's Total"),
+    ("icon", "Icon Only"),
+]
+
+CATEGORY_LABELS = [
+    ("input", "Input"),
+    ("output", "Output"),
+    ("cache_write", "Cache write"),
+    ("cache_read", "Cache read"),
+]
+
+MODEL_FAMILIES = ["fable", "mythos", "opus", "sonnet", "haiku"]
 
 
 def _ordinal_suffix(day):
@@ -64,6 +96,38 @@ def _bold_menu_item(title):
     return item
 
 
+def _info_item(title):
+    """A plain, non-clickable menu row (shown greyed out like a label)."""
+    item = rumps.MenuItem(title)
+    item._menuitem.setEnabled_(False)
+    return item
+
+
+def _model_display_name(model_id):
+    """'claude-opus-5-5' -> 'Opus 5.5', 'claude-haiku-4-5-20251001' -> 'Haiku 4.5'."""
+    parts = model_id.split("-")
+    if len(parts) < 2 or parts[0] != "claude" or parts[1] not in MODEL_FAMILIES:
+        return model_id
+    version = [p for p in parts[2:] if p.isdigit() and len(p) <= 2]
+    name = parts[1].capitalize()
+    return f"{name} {'.'.join(version)}" if version else name
+
+
+def _merge_cache_writes(categories):
+    merged = dict(categories)
+    merged["cache_write"] = merged.pop("cache_write_5m", 0) + merged.pop(
+        "cache_write_1h", 0
+    )
+    return merged
+
+
+def _percent(part, whole):
+    if not whole or not part:
+        return "0%"
+    share = part / whole * 100
+    return "<1%" if share < 1 else f"{share:.0f}%"
+
+
 def _service_target():
     return f"gui/{os.getuid()}/{LABEL}"
 
@@ -94,8 +158,12 @@ class TokenCounterApp(rumps.App):
         self.state.setdefault("my_gist_id", None)
         self.state.setdefault("leaderboard_name", None)
         self.state.setdefault("last_leaderboard_sync_date", None)
+        self.state.setdefault("title_mode", "lifetime")
         if self.state["first_seen_at"] is None:
             self.state["first_seen_at"] = date.today().isoformat()
+        # Backfill must run before the first refresh: it re-reads each file
+        # only up to the offsets saved by the previous run.
+        backfill_daily(self.state)
         refresh_grand_total(self.state)
         save_state(self.state, STATE_FILE)
 
@@ -103,6 +171,17 @@ class TokenCounterApp(rumps.App):
         self.total_item = rumps.MenuItem(self._total_label())
         self.today_item = rumps.MenuItem(self._today_label())
         self.since_item = rumps.MenuItem(self._since_label())
+        self.breakdown_item = rumps.MenuItem("Token Breakdown")
+        self.models_item = rumps.MenuItem("By Model")
+        self.projects_item = rumps.MenuItem("Top Projects (Last 7 Days)")
+        self.history_item = rumps.MenuItem("History")
+        self.cost_item = rumps.MenuItem("Estimated API Cost")
+        self.title_mode_item = rumps.MenuItem("Menu Bar Shows")
+        for mode, label in TITLE_MODES:
+            option = rumps.MenuItem(label, callback=self.set_title_mode)
+            option.mode = mode
+            option.state = mode == self.state["title_mode"]
+            self.title_mode_item.add(option)
         self.leaderboard_item = rumps.MenuItem("Leaderboard (Beta)")
         self.sessions_item = rumps.MenuItem("Active Sessions")
         self.pause_item = rumps.MenuItem("Pause Scanning", callback=self.toggle_pause)
@@ -126,16 +205,24 @@ class TokenCounterApp(rumps.App):
             self.today_item,
             self.since_item,
             None,
+            self.breakdown_item,
+            self.models_item,
+            self.projects_item,
+            self.history_item,
+            self.cost_item,
+            None,
             self.leaderboard_item,
             self.sessions_item,
             None,
+            self.title_mode_item,
             self.pause_item,
             self.interval_item,
             self.login_item,
         ]
         self._update_sessions_menu()
         self._rebuild_leaderboard_menu()
-        self.title = f"🪙 {format_count(self.state['grand_total'])}"
+        self._rebuild_stats_menus()
+        self._update_title()
 
         self.timer = rumps.Timer(self.refresh, self.state["scan_interval_seconds"])
         self.timer.start()
@@ -143,8 +230,133 @@ class TokenCounterApp(rumps.App):
     def _total_label(self):
         return f"Claude tokens used: {self.state['grand_total']:,}"
 
+    def _today_tokens(self):
+        today = date.today()
+        return total_in_range(self.state["daily"], today, today)
+
     def _today_label(self):
-        return f"Today's tokens used: {sum_usage_for_today():,}"
+        return f"Today's tokens used: {self._today_tokens():,}"
+
+    def _update_title(self):
+        mode = self.state["title_mode"]
+        if mode == "today":
+            self.title = f"🪙 {format_count(self._today_tokens())}"
+        elif mode == "icon":
+            self.title = "🪙"
+        else:
+            self.title = f"🪙 {format_count(self.state['grand_total'])}"
+
+    def set_title_mode(self, sender):
+        for option in self.title_mode_item.values():
+            option.state = option.mode == sender.mode
+        self.state["title_mode"] = sender.mode
+        save_state(self.state, STATE_FILE)
+        self._update_title()
+
+    @staticmethod
+    def _reset_submenu(item):
+        if item:
+            item.clear()
+
+    def _rebuild_stats_menus(self):
+        daily = self.state["daily"]
+        today = date.today()
+        week_start = today - timedelta(days=6)
+        today_models = models_in_range(daily, today, today)
+        week_models = models_in_range(daily, week_start, today)
+        month_models = models_in_range(daily, today.replace(day=1), today)
+        lifetime_models = models_all_time(daily)
+        lifetime_detailed = sum(t for _, t in model_totals(lifetime_models))
+        earlier = max(self.state["grand_total"] - lifetime_detailed, 0)
+
+        # Token Breakdown
+        self._reset_submenu(self.breakdown_item)
+        for heading, models, extra in (
+            ("Today", today_models, 0),
+            ("Lifetime", lifetime_models, earlier),
+        ):
+            self.breakdown_item.add(_bold_menu_item(heading))
+            categories = _merge_cache_writes(category_totals(models))
+            whole = sum(categories.values()) + extra
+            for key, label in CATEGORY_LABELS:
+                count = categories[key]
+                self.breakdown_item.add(
+                    _info_item(f"{label}: {count:,} ({_percent(count, whole)})")
+                )
+            if extra:
+                self.breakdown_item.add(
+                    _info_item(f"Older, no detail: {extra:,} ({_percent(extra, whole)})")
+                )
+            self.breakdown_item.add(None)
+        self.breakdown_item.add(
+            _info_item("Cache read = context re-sent each turn, billed cheaply")
+        )
+
+        # By Model
+        self._reset_submenu(self.models_item)
+        for heading, models in (("Today", today_models), ("Lifetime", lifetime_models)):
+            self.models_item.add(_bold_menu_item(heading))
+            rows = model_totals(models)
+            if not rows:
+                self.models_item.add(_info_item("No usage yet"))
+            for model, tokens in rows:
+                self.models_item.add(
+                    _info_item(f"{_model_display_name(model)} — {format_count(tokens)}")
+                )
+            self.models_item.add(None)
+        if earlier:
+            self.models_item.add(
+                _info_item(f"Plus {format_count(earlier)} older tokens with no model detail")
+            )
+
+        # Top Projects
+        self._reset_submenu(self.projects_item)
+        projects = top_projects(daily, week_start, today)
+        if not projects:
+            self.projects_item.add(_info_item("No usage in the last 7 days"))
+        for project, tokens in projects:
+            self.projects_item.add(_info_item(f"{project} — {format_count(tokens)}"))
+
+        # History
+        self._reset_submenu(self.history_item)
+        stats = history(daily, today)
+        self.history_item.add(_info_item(f"Yesterday: {stats['yesterday']:,}"))
+        self.history_item.add(_info_item(f"Last 7 days: {stats['last_7_days']:,}"))
+        self.history_item.add(_info_item(f"This month: {stats['this_month']:,}"))
+        if stats["biggest_day"]:
+            best_date, best_tokens = stats["biggest_day"]
+            self.history_item.add(
+                _info_item(
+                    f"Biggest day: {_format_tracking_date(best_date.isoformat())} "
+                    f"— {format_count(best_tokens)}"
+                )
+            )
+
+        # Estimated API Cost
+        self._reset_submenu(self.cost_item)
+        unpriced_total = 0
+        for label, models in (
+            ("Today", today_models),
+            ("Last 7 days", week_models),
+            ("This month", month_models),
+            ("All logged usage", lifetime_models),
+        ):
+            dollars, unpriced = estimate_cost(models)
+            unpriced_total = max(unpriced_total, unpriced)
+            self.cost_item.add(_info_item(f"{label}: {format_dollars(dollars)}"))
+        self.cost_item.add(None)
+        if unpriced_total:
+            self.cost_item.add(
+                _info_item(f"{format_count(unpriced_total)} tokens from unknown models not priced")
+            )
+        if earlier:
+            self.cost_item.add(
+                _info_item(f"{format_count(earlier)} older tokens not priced (no model detail)")
+            )
+        self.cost_item.add(
+            _info_item("Estimate at API list prices. Claude Pro is flat-rate,")
+        )
+        self.cost_item.add(_info_item("so you aren't billed this."))
 
     def _since_label(self):
         return f"Tracking since: {_format_tracking_date(self.state['first_seen_at'])}"
@@ -350,9 +562,10 @@ class TokenCounterApp(rumps.App):
     def refresh(self, _):
         refresh_grand_total(self.state)
         save_state(self.state, STATE_FILE)
-        self.title = f"🪙 {format_count(self.state['grand_total'])}"
+        self._update_title()
         self.total_item.title = self._total_label()
         self.today_item.title = self._today_label()
+        self._rebuild_stats_menus()
         self._update_sessions_menu()
         self._maybe_run_daily_leaderboard_sync()
         self._rebuild_leaderboard_menu()
@@ -394,5 +607,13 @@ class TokenCounterApp(rumps.App):
         save_state(self.state, STATE_FILE)
 
 
+def hide_dock_icon():
+    # Accessory policy = menu-bar only: no Dock icon, no app menu, not in Cmd-Tab.
+    NSApplication.sharedApplication().setActivationPolicy_(
+        NSApplicationActivationPolicyAccessory
+    )
+
+
 if __name__ == "__main__":
+    hide_dock_icon()
     TokenCounterApp().run()

@@ -2,6 +2,8 @@ import json
 from datetime import date, datetime
 from pathlib import Path
 
+from usage_stats import record_entry
+
 CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 
 
@@ -15,16 +17,19 @@ def save_state(state, state_file):
     state_file.write_text(json.dumps(state))
 
 
-def sum_usage_since(path, offset):
+def sum_usage_since(path, offset, daily=None, stop_at=None):
     """Sum token usage from an assistant-log jsonl file starting at a byte offset.
 
     Only consumes complete (newline-terminated) lines so a session file being
     actively written to never has a half-written JSON line parsed.
+    If `daily` is given, each counted entry is also recorded into those
+    per-day buckets (see usage_stats). If `stop_at` is given, reading stops
+    at that byte offset.
     Returns (tokens_found, new_offset).
     """
     with open(path, "rb") as f:
         f.seek(offset)
-        data = f.read()
+        data = f.read() if stop_at is None else f.read(max(stop_at - offset, 0))
 
     tokens = 0
     consumed = 0
@@ -47,6 +52,8 @@ def sum_usage_since(path, offset):
             + usage.get("cache_creation_input_tokens", 0)
             + usage.get("cache_read_input_tokens", 0)
         )
+        if daily is not None:
+            record_entry(daily, entry)
     return tokens, offset + consumed
 
 
@@ -58,6 +65,7 @@ def refresh_grand_total(state, projects_dir=CLAUDE_PROJECTS_DIR):
     while they existed.
     """
     offsets = state["file_offsets"]
+    daily = state.setdefault("daily", {})
     current_files = {str(p) for p in projects_dir.rglob("*.jsonl")}
 
     for tracked_path in list(offsets):
@@ -66,10 +74,30 @@ def refresh_grand_total(state, projects_dir=CLAUDE_PROJECTS_DIR):
 
     for path_str in current_files:
         offset = offsets.get(path_str, 0)
-        tokens, new_offset = sum_usage_since(path_str, offset)
+        tokens, new_offset = sum_usage_since(path_str, offset, daily)
         state["grand_total"] += tokens
         offsets[path_str] = new_offset
 
+    return state
+
+
+def backfill_daily(state):
+    """One-time fill of the per-day buckets from logs still on disk.
+
+    Installs from before per-day tracking existed have offsets but no buckets.
+    Re-reads each tracked file from the start up to its saved offset (so it
+    never overlaps what refresh_grand_total records) without touching
+    grand_total. Logs Claude Code already pruned can't be recovered.
+    """
+    if state.get("daily_backfilled"):
+        return state
+    daily = state.setdefault("daily", {})
+    for path_str, offset in state["file_offsets"].items():
+        try:
+            sum_usage_since(path_str, 0, daily, stop_at=offset)
+        except FileNotFoundError:
+            continue
+    state["daily_backfilled"] = True
     return state
 
 
