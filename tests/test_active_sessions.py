@@ -109,3 +109,18 @@ def test_active_sessions_sorted_by_tokens_descending(tmp_path):
     )
 
     assert [s["tokens"] for s in sessions] == [200, 2]
+
+
+def test_claude_pids_matches_full_executable_paths():
+    ps_output = """  PID COMM
+  101 /Applications/Foo.app/Contents/MacOS/claude
+  102 claude
+  103 /usr/bin/claudette
+  104 /bin/zsh
+"""
+    assert active_sessions.claude_pids(ps_output) == ["101", "102"]
+
+
+def test_project_dir_for_cwd_escapes_spaces_and_dots(tmp_path):
+    result = active_sessions.project_dir_for_cwd("/Users/me/FPS Game 10.23", projects_dir=tmp_path)
+    assert result == tmp_path / "-Users-me-FPS-Game-10-23"

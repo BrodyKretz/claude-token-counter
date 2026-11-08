@@ -1,3 +1,5 @@
+import os
+import re
 import subprocess
 from collections import Counter
 from pathlib import Path
@@ -12,15 +14,7 @@ def running_claude_cwds():
     ps_output = subprocess.run(
         ["ps", "-eo", "pid,comm"], capture_output=True, text=True, check=True
     ).stdout
-
-    pids = []
-    for line in ps_output.splitlines()[1:]:
-        parts = line.split(None, 1)
-        if len(parts) != 2:
-            continue
-        pid, comm = parts
-        if comm.strip() == "claude":
-            pids.append(pid.strip())
+    pids = claude_pids(ps_output)
 
     cwds = []
     for pid in pids:
@@ -35,8 +29,27 @@ def running_claude_cwds():
     return cwds
 
 
+def claude_pids(ps_output):
+    """PIDs of `claude` processes in `ps -eo pid,comm` output.
+
+    macOS `ps` prints the full executable path in the comm column (e.g. the
+    VS Code extension's .../native-binary/claude), so match on the basename.
+    """
+    pids = []
+    for line in ps_output.splitlines()[1:]:
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            continue
+        pid, comm = parts
+        if os.path.basename(comm.strip()) == "claude":
+            pids.append(pid.strip())
+    return pids
+
+
 def project_dir_for_cwd(cwd, projects_dir=CLAUDE_PROJECTS_DIR):
-    return projects_dir / cwd.replace("/", "-")
+    # Claude Code names each project's log folder after its cwd with every
+    # non-alphanumeric character (slashes, spaces, dots...) replaced by "-".
+    return projects_dir / re.sub(r"[^A-Za-z0-9]", "-", cwd)
 
 
 def display_name(cwd, home=None):
