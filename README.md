@@ -19,8 +19,8 @@ By default it never connects to the internet or sends your data anywhere. The on
 
 1. Open Terminal and paste this in, one line at a time:
    ```bash
-   git clone https://github.com/BrodyKretz/claude-token-counter.git
-   cd claude-token-counter
+   git clone https://github.com/raymondtian30/claude-tracker.git
+   cd claude-tracker
    ./install.sh
    ```
 2. Look at your menu bar (top right of your screen). You'll see a 🪙 icon with a number next to it.
@@ -82,7 +82,7 @@ This removes it completely from starting at login. Your accumulated total (`stat
 Current version: **2.0.0**, following [Semantic Versioning](https://semver.org) (MAJOR.MINOR.PATCH). The version lives in `version.py` and is shown in Settings.
 
 - Original app by [BrodyKretz](https://github.com/BrodyKretz/claude-token-counter)
-- Redesign and new features (panel, stats tabs, cost estimate, fixes) by Raymond Tian ([raymondtian30](https://github.com/raymondtian30/claude-token-counter))
+- Redesign and new features (panel, stats tabs, cost estimate, fixes) by Raymond Tian ([raymondtian30](https://github.com/raymondtian30/claude-tracker))
 
 ## Project layout
 

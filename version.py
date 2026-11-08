@@ -11,4 +11,4 @@ __version__ = "2.0.0"
 
 ORIGINAL_AUTHOR = "BrodyKretz"
 FORK_AUTHOR = "Raymond Tian"
-REPO_URL = "https://github.com/raymondtian30/claude-token-counter"
+REPO_URL = "https://github.com/raymondtian30/claude-tracker"
