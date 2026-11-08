@@ -36,7 +36,7 @@ If step 1 fails because `rumps` isn't installed, the script installs it for you 
 - **Tracking since** -- the date you first installed this
 - **Token Breakdown** -- today's and lifetime tokens split into input, output, cache write and cache read
 - **By Model** -- today's and lifetime tokens per model (Opus, Sonnet, Haiku...)
-- **Top Projects (Last 7 Days)** -- the 5 folders you used the most tokens in this week
+- **Top Projects (Last 7 Days)** -- the 3 folders you used the most tokens in this week
 - **History** -- yesterday, last 7 days, this month, and your biggest day so far
 - **Estimated API Cost** -- what your usage would cost at Anthropic's pay-as-you-go API prices. Just for fun: a Pro or Max subscription is flat-rate, so you aren't billed this. Prices live in `pricing.py` and will drift over time.
 - **Leaderboard (Beta)** -- see below, this one's still a work in progress

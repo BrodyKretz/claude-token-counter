@@ -126,7 +126,7 @@ def _fold_subfolders(totals):
     return folded
 
 
-def top_projects(daily, start, end, limit=5):
+def top_projects(daily, start, end, limit=3):
     totals = {}
     for bucket in _days_in_range(daily, start, end):
         for project, tokens in bucket["projects"].items():
