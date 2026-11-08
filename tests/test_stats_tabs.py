@@ -241,3 +241,28 @@ def test_tool_choices_are_enabled_tools_detected_or_with_history():
     assert tool_choices(state, detected=["claude_code"]) == [
         ("claude_code", "Claude Code"), ("opencode", "opencode"),
     ]
+
+
+def test_settings_keeps_enabled_tool_whose_data_disappeared():
+    state = {"enabled_tools": ["claude_code", "codex"], "combine_tools": False}
+
+    tab = settings_tab(state, paused=False, interval_choices=[15], detected=["claude_code"])
+
+    tools_card = next(c for c in tab["cards"] if c["title"] == "AI tools")
+    assert ("switch", "Codex", True, "tool:codex") in tools_card["items"]
+
+
+def test_combined_cost_prices_each_tool_separately():
+    from tools import combined_view
+
+    claude_daily, opencode_daily = {}, {}
+    add_usage(claude_daily, date(2026, 7, 29), "claude-opus-5-5", "~/p", {**PARTS, "input": 1_000_000})
+    add_usage(opencode_daily, date(2026, 7, 29), "claude-opus-5-5", "~/p", {**PARTS, "input": 10}, cost=0.5)
+    state = {"grand_total": 1_000_000, "daily": claude_daily,
+             "sources": {"opencode": {"daily": opencode_daily}}}
+
+    view = combined_view(state, ["claude_code", "opencode"])
+    tabs = {t["key"]: t for t in build_panel(state, [], [], today=date(2026, 7, 29), view=view)}
+
+    # Claude Code: 1M input at $4/M; opencode: its recorded $0.50.
+    assert ("Today", "$4.50", "sun.max") in tabs["cost"]["cards"][0]["items"][0][1]

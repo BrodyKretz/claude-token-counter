@@ -244,15 +244,22 @@ def _projects_tab(d):
 
 def _cost_tab(d):
     ranges = {
-        "today": (d.today, d.today, d.today_models),
-        "week": (d.week_start, d.today, d.week_models),
-        "month": (d.today.replace(day=1), d.today, d.month_models),
-        "all": (date.min, date.max, d.lifetime_models),
+        "today": (d.today, d.today),
+        "week": (d.week_start, d.today),
+        "month": (d.today.replace(day=1), d.today),
+        "all": (date.min, date.max),
     }
-    costs = {
-        key: estimate_cost(models, recorded_cost_in_range(d.daily, start, end))
-        for key, (start, end, models) in ranges.items()
-    }
+    # Price each tool on its own: a cost one tool recorded for a model must
+    # not stand in for another tool's tokens of the same model.
+    dailies = [v["daily"] for v in d.view.get("views", [d.view])]
+    costs = {}
+    for key, (start, end) in ranges.items():
+        per_tool = [
+            estimate_cost(models_in_range(daily, start, end),
+                          recorded_cost_in_range(daily, start, end))
+            for daily in dailies
+        ]
+        costs[key] = (sum(c for c, _ in per_tool), sum(u for _, u in per_tool))
     notes = []
     unpriced = max(u for _, u in costs.values())
     if unpriced:
@@ -357,7 +364,10 @@ def _leaderboard_tab(state, friends):
 
 def _tools_card(state, detected):
     enabled = state.get("enabled_tools", [])
-    items = [("switch", TOOL_NAMES[key], key in enabled, f"tool:{key}") for key in detected]
+    # Enabled tools stay listed even if their data has gone, so they can be
+    # turned off.
+    keys = [key for key, _ in TOOLS if key in detected or key in enabled]
+    items = [("switch", TOOL_NAMES[key], key in enabled, f"tool:{key}") for key in keys]
     items.append(("switch", "Combine all tools", state.get("combine_tools", False), "combine_tools"))
     return {"title": "AI tools", "items": items}
 

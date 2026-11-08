@@ -62,4 +62,5 @@ def combined_view(state, enabled):
         "daily": merge_daily([v["daily"] for v in views]),
         "grand_total": sum(v["grand_total"] for v in views),
         "error": errors[0] if errors else None,
+        "views": views,  # each tool's own view, e.g. to price tools separately
     }
