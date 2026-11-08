@@ -438,6 +438,15 @@ class Panel:
                 underline = _box(NSMakeRect(x + slot * 0.25, y + height - 3, slot * 0.5, 3),
                                  NSColor.controlAccentColor(), radius=1.5)
                 self.root.addSubview_(underline)
+            # An invisible button over the whole tab (icon, caption and the
+            # space around them), so clicking anywhere on it switches tabs.
+            hit_area = NSButton.alloc().initWithFrame_(NSMakeRect(x, y, slot, height))
+            hit_area.setTransparent_(True)
+            hit_area.setToolTip_(tab["title"])
+            hit_area.setTag_(index)
+            hit_area.setTarget_(self._target)
+            hit_area.setAction_("tabClicked:")
+            self.root.addSubview_(hit_area)
         hairline = _box(NSMakeRect(PAD, y + height, inner, 1), _faint(0.1), radius=0)
         self.root.addSubview_(hairline)
         return y + height + 1
